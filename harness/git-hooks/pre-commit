@@ -1,0 +1,24 @@
+#!/bin/sh
+# Git-level guardrails (docs/guardrails.md), independent of the agent IDE.
+# Enabled per clone with: git config core.hooksPath harness/git-hooks
+
+branch=$(git symbolic-ref --short -q HEAD)
+
+# B2: no commits directly on main — work on a prN branch, merge through a pull request.
+case "$branch" in
+  main|master)
+    echo "guardrail B2: commit on '$branch' is blocked; create a prN branch and open a pull request." >&2
+    exit 1 ;;
+esac
+
+# B5: secret files never enter the repository.
+secrets=$(git diff --cached --name-only --diff-filter=ACMR |
+  grep -E '(^|/)(\.env(\.[A-Za-z0-9_.-]+)?|[^/]*\.(pem|key|p12|pfx)|id_(rsa|ed25519|ecdsa)[^/]*|\.npmrc|\.netrc)$' |
+  grep -vE '(^|/)\.env\.example$')
+if [ -n "$secrets" ]; then
+  echo "guardrail B5: staged files look like secrets:" >&2
+  echo "$secrets" | sed 's/^/  /' >&2
+  exit 1
+fi
+
+exit 0

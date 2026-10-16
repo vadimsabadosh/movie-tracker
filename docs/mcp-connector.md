@@ -37,7 +37,9 @@ Node.js 24 (TypeScript виконується напряму, без збірк�
 | `get_note` | retrieval | Нотатка за назвою чи alias: frontmatter, тіло, backlinks |
 | `search_notes` | retrieval | Пошук за ключовими словами (назва ×5, aliases ×4, теги ×2, тіло ×1), фільтри за типом і тегом |
 
-Вхід `ingest_note`: `title`, `type` (`concept` / `component` / `decision` / `glossary`), `content`, необов'язкові `aliases`, `tags`, `requirements`, `links`, `properties`, `source`, `add_to_moc`.
+Вхід `ingest_note`: `title`, `type` (`concept` / `component` / `decision` / `glossary`), `content` (обов'язковий лише для нової нотатки), необов'язкові `aliases`, `tags`, `requirements`, `links`, `properties`, `relations`, `source`, `add_to_moc`.
+
+`relations` (ПР № 4) — типізовані зв'язки онтології (`depends_on`, `implements`, `governed_by`, `part_of`, `supersedes`), що перевіряються за доменом і діапазоном; `get_note` повертає їх у `relations.outgoing` і обернені — у `relations.incoming`. Див. `docs/ontology.md`.
 
 ### Цикл `ingest_note`
 

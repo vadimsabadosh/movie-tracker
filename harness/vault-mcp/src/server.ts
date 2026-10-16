@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { NOTE_TYPES } from './notes.ts';
+import { NOTE_TYPES, RELATION_TYPES, RELATIONS } from './notes.ts';
 import { Vault } from './vault.ts';
 
 // harness/vault-mcp/src -> app repository root
@@ -44,7 +44,8 @@ server.registerTool(
       'Writes one note into the vault following its conventions (frontmatter, folder per type, wiki-links), ' +
       'adds new notes to the MOC, then commits and pushes the vault repository. ' +
       'Idempotent: the same input twice returns status "unchanged" and creates no commit. ' +
-      'Updating replaces the note body with `content`; aliases, tags, requirements and sources are merged. ' +
+      'Updating replaces the note body with `content` (omit it to keep the body); aliases, tags, requirements, sources and relations are merged. ' +
+      'Typed relations are checked against the vault ontology: wrong source or target type, or a missing target, rejects the call. ' +
       'Notes are never deleted through this tool.',
     inputSchema: {
       title: z
@@ -54,7 +55,11 @@ server.registerTool(
       content: z
         .string()
         .min(1)
-        .describe('Markdown body without frontmatter and without the H1 title. Reference other notes as [[Note Title]].'),
+        .optional()
+        .describe(
+          'Markdown body without frontmatter and without the H1 title. Reference other notes as [[Note Title]]. ' +
+            'Required for a new note; omit when only frontmatter or relations change.',
+        ),
       aliases: z.array(z.string()).optional().describe('Alternative names, e.g. the Ukrainian term'),
       tags: z.array(z.string()).optional().describe('Extra tags; the type tag is added automatically'),
       requirements: z.array(z.string()).optional().describe('Requirement IDs from docs/app-requirements.md, e.g. ["FR-7", "NFR-5"]'),
@@ -63,6 +68,13 @@ server.registerTool(
         .record(z.string(), z.union([z.string(), z.array(z.string())]))
         .optional()
         .describe('Type-specific frontmatter: component → layer, source_path, status; decision → status, supersedes, superseded_by'),
+      relations: z
+        .partialRecord(z.enum(RELATION_TYPES as [string, ...string[]]), z.array(z.string()))
+        .optional()
+        .describe(
+          'Typed links to existing notes, by title. ' +
+            RELATION_TYPES.map((r) => `${r}: ${RELATIONS[r].domain.join('/')} → ${RELATIONS[r].range.join('/')}`).join('; '),
+        ),
       source: z
         .string()
         .optional()
@@ -84,7 +96,9 @@ server.registerTool(
   'get_note',
   {
     title: 'Read a vault note',
-    description: 'Returns one note by exact title or alias (case-insensitive): frontmatter, markdown body and backlinks.',
+    description:
+      'Returns one note by exact title or alias (case-insensitive): frontmatter, markdown body, backlinks ' +
+      'and typed relations (outgoing, and incoming under the inverse name, e.g. used_by, implemented_by).',
     inputSchema: { title: z.string().describe('Note title, e.g. "Recommender", or an alias such as "Рекомендатор"') },
     annotations: { readOnlyHint: true },
   },

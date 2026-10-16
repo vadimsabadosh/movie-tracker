@@ -6,20 +6,25 @@ import {
   adrId,
   asStringArray,
   extractLinks,
+  fromLink,
   MOC_SECTIONS,
   parseNote,
+  RELATION_TYPES,
+  RELATIONS,
   serializeNote,
+  toLink,
   TYPE_FOLDERS,
   union,
   validateTitle,
   type Frontmatter,
   type NoteType,
+  type RelationType,
 } from './notes.ts';
 
 // Folders that hold no knowledge notes.
 const SKIPPED_DIRS = new Set(['Templates']);
 // Fields the server manages itself; callers cannot set them through `properties`.
-const RESERVED_KEYS = new Set(['type', 'id', 'aliases', 'tags', 'requirements', 'sources', 'created', 'updated']);
+const RESERVED_KEYS = new Set(['type', 'id', 'aliases', 'tags', 'requirements', 'sources', 'created', 'updated', ...RELATION_TYPES]);
 const REQUIREMENT_RE = /^N?FR-\d+$/;
 
 export interface VaultOptions {
@@ -40,12 +45,14 @@ export interface NoteFile {
 export interface IngestInput {
   title: string;
   type: NoteType;
-  content: string;
+  /** Required for a new note; omitted on update keeps the current body. */
+  content?: string;
   aliases?: string[];
   tags?: string[];
   requirements?: string[];
   links?: string[];
   properties?: Record<string, string | string[]>;
+  relations?: Partial<Record<RelationType, string[]>>;
   source?: string;
   addToMoc?: boolean;
 }
@@ -65,6 +72,7 @@ export interface NoteView {
   frontmatter: Frontmatter;
   body: string;
   backlinks: string[];
+  relations: { outgoing: Record<string, string[]>; incoming: Record<string, string[]> };
 }
 
 export interface SearchHit {
@@ -130,7 +138,7 @@ export class Vault {
     const backlinks = notes
       .filter((n) => n !== note && extractLinks(n.text).some((l) => l.toLowerCase() === titleLower))
       .map((n) => n.title);
-    return { path: note.path, title: note.title, frontmatter: note.frontmatter, body: note.body, backlinks };
+    return { path: note.path, title: note.title, frontmatter: note.frontmatter, body: note.body, backlinks, relations: relationsOf(note, notes) };
   }
 
   async search(query: string, options: { type?: string; tag?: string; limit?: number } = {}): Promise<SearchHit[]> {
@@ -182,11 +190,13 @@ export class Vault {
     if (existing && existing.frontmatter.type !== input.type) {
       throw new Error(`"${existing.path}" already exists with type "${String(existing.frontmatter.type ?? 'none')}"`);
     }
+    if (!existing && !input.content?.trim()) throw new Error('content is required to create a note');
+    const relations = resolveRelations(input, title, files);
     const relPath = existing?.path ?? path.join(TYPE_FOLDERS[input.type], `${title}.md`);
     const today = this.today();
 
-    const frontmatter = buildFrontmatter(existing?.frontmatter, input, title, today);
-    const body = buildBody(existing?.title ?? title, input);
+    const frontmatter = buildFrontmatter(existing?.frontmatter, input, title, today, relations);
+    const body = input.content?.trim() ? buildBody(existing?.title ?? title, input.content, input.links) : existing!.body;
     let text = serializeNote(frontmatter, body);
 
     const warnings = unresolvedLinks(text, files, title).map((l) => `link [[${l}]] does not match any note`);
@@ -240,7 +250,56 @@ export class Vault {
   }
 }
 
-function buildFrontmatter(previous: Frontmatter | undefined, input: IngestInput, title: string, today: string): Frontmatter {
+/**
+ * Checks every relation against the ontology (allowed source and target types, target exists)
+ * and returns canonical target titles. Any violation rejects the whole call.
+ */
+function resolveRelations(input: IngestInput, title: string, files: NoteFile[]): Partial<Record<RelationType, string[]>> {
+  const resolved: Partial<Record<RelationType, string[]>> = {};
+  for (const [name, targets] of Object.entries(input.relations ?? {})) {
+    const relation = name as RelationType;
+    const spec = RELATIONS[relation];
+    if (!spec) throw new Error(`unknown relation "${name}"; allowed: ${RELATION_TYPES.join(', ')}`);
+    if (!(spec.domain as readonly string[]).includes(input.type)) {
+      throw new Error(`relation "${relation}" cannot start from a ${input.type} note (allowed: ${spec.domain.join(', ')})`);
+    }
+    resolved[relation] = (targets ?? []).map((raw) => {
+      const wanted = fromLink(raw).toLowerCase();
+      if (wanted === title.toLowerCase()) throw new Error(`relation "${relation}" cannot point to the note itself`);
+      const target = files.find((f) => f.title.toLowerCase() === wanted && typeof f.frontmatter.type === 'string');
+      if (!target) throw new Error(`relation "${relation}": no note "${fromLink(raw)}"`);
+      const targetType = String(target.frontmatter.type);
+      if (!(spec.range as readonly string[]).includes(targetType)) {
+        throw new Error(`relation "${relation}" cannot point to ${targetType} note "${target.title}" (allowed: ${spec.range.join(', ')})`);
+      }
+      return target.title;
+    });
+  }
+  return resolved;
+}
+
+function relationsOf(note: NoteFile, notes: NoteFile[]): NoteView['relations'] {
+  const outgoing: Record<string, string[]> = {};
+  const incoming: Record<string, string[]> = {};
+  const titleLower = note.title.toLowerCase();
+  for (const relation of RELATION_TYPES) {
+    const targets = asStringArray(note.frontmatter[relation]).map(fromLink).filter(Boolean);
+    if (targets.length) outgoing[relation] = targets;
+    const sources = notes
+      .filter((n) => asStringArray(n.frontmatter[relation]).some((v) => fromLink(v).toLowerCase() === titleLower))
+      .map((n) => n.title);
+    if (sources.length) incoming[RELATIONS[relation].inverse] = sources;
+  }
+  return { outgoing, incoming };
+}
+
+function buildFrontmatter(
+  previous: Frontmatter | undefined,
+  input: IngestInput,
+  title: string,
+  today: string,
+  relations: Partial<Record<RelationType, string[]>>,
+): Frontmatter {
   // Existing key order is kept; new keys follow the vault templates.
   const fm: Frontmatter = previous ? { ...previous } : { type: input.type };
   if (input.type === 'decision' && fm.id === undefined) fm.id = adrId(title);
@@ -254,6 +313,10 @@ function buildFrontmatter(previous: Frontmatter | undefined, input: IngestInput,
   if (input.requirements?.length || previous?.requirements !== undefined) {
     fm.requirements = union(asStringArray(previous?.requirements), input.requirements ?? []);
   }
+  for (const [relation, targets] of Object.entries(relations)) {
+    const merged = union(asStringArray(previous?.[relation]).map(fromLink), targets ?? []);
+    fm[relation] = merged.map(toLink);
+  }
   if (input.source) fm.sources = union(asStringArray(previous?.sources), [input.source]);
   if (!previous) {
     fm.created = today;
@@ -262,13 +325,13 @@ function buildFrontmatter(previous: Frontmatter | undefined, input: IngestInput,
   return fm;
 }
 
-function buildBody(title: string, input: IngestInput): string {
-  let content = input.content.trim();
+function buildBody(title: string, rawContent: string, extraLinks: string[] | undefined): string {
+  let content = rawContent.trim();
   // Callers sometimes include the H1 themselves; the server owns it.
   const h1 = new RegExp(`^# ${title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\n`, 'i');
   content = content.replace(h1, '').trim();
   let body = `# ${title}\n\n${content}`;
-  const links = union(input.links ?? []).filter((l) => !extractLinks(content).includes(l));
+  const links = union(extraLinks ?? []).filter((l) => !extractLinks(content).includes(l));
   if (links.length) body += `\n\n**Пов'язано:** ${links.map((l) => `[[${l}]]`).join(' · ')}`;
   return body;
 }
