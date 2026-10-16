@@ -19,6 +19,28 @@ export const MOC_SECTIONS: Record<NoteType, string> = {
   glossary: 'Glossary',
 };
 
+// Typed relations (ontology, PR4): frontmatter lists of "[[Target]]" links.
+// `domain` — types of the note that holds the field, `range` — allowed target types.
+export const RELATIONS = {
+  depends_on: { domain: ['component'], range: ['component'], inverse: 'used_by' },
+  implements: { domain: ['component'], range: ['concept', 'decision'], inverse: 'implemented_by' },
+  governed_by: { domain: ['component', 'concept'], range: ['decision'], inverse: 'governs' },
+  part_of: { domain: ['concept'], range: ['concept'], inverse: 'has_part' },
+  supersedes: { domain: ['decision'], range: ['decision'], inverse: 'superseded_by' },
+} as const satisfies Record<string, { domain: NoteType[]; range: NoteType[]; inverse: string }>;
+export type RelationType = keyof typeof RELATIONS;
+export const RELATION_TYPES = Object.keys(RELATIONS) as RelationType[];
+
+export function toLink(title: string): string {
+  return `[[${title}]]`;
+}
+
+/** "[[Target]]", "[[Target|alias]]" or a bare "Target" → "Target". */
+export function fromLink(value: string): string {
+  const match = /^\[\[([^\]|#]+)(?:[#|][^\]]*)?\]\]$/.exec(value.trim());
+  return (match ? match[1] ?? '' : value).trim();
+}
+
 export type Frontmatter = Record<string, unknown>;
 
 export interface ParsedNote {

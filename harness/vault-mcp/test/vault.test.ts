@@ -181,6 +181,53 @@ describe('ingest_note', () => {
   });
 });
 
+describe('typed relations', () => {
+  const component = (title: string, content = 'Компонент.') => ({ title, type: 'component' as const, content });
+
+  it('stores relations as wiki-links in frontmatter and merges them on update', async () => {
+    await vault.ingest(component('Repositories Layer'));
+    await vault.ingest(component('Database'));
+    await vault.ingest({ ...component('Services Layer'), relations: { depends_on: ['Repositories Layer'] } });
+
+    const result = await vault.ingest({ title: 'services layer', type: 'component', relations: { depends_on: ['[[database]]'] } });
+
+    expect(result.status).toBe('updated');
+    const text = await readFile(path.join(work, 'Components/Services Layer.md'), 'utf8');
+    expect(text).toContain('depends_on: ["[[Repositories Layer]]", "[[Database]]"]');
+    expect(parseNote(text).body).toBe('# Services Layer\n\nКомпонент.\n');
+  });
+
+  it('is idempotent for relations already present', async () => {
+    await vault.ingest(component('Database'));
+    await vault.ingest({ ...component('Repositories Layer'), relations: { depends_on: ['Database'] } });
+    const again = await vault.ingest({ title: 'Repositories Layer', type: 'component', relations: { depends_on: ['Database'] } });
+    expect(again.status).toBe('unchanged');
+  });
+
+  it('returns outgoing relations and incoming ones under the inverse name', async () => {
+    await vault.ingest({ title: 'ADR-001 Layered Architecture', type: 'decision', content: '## Рішення\n...' });
+    await vault.ingest({ ...component('Movie Repository'), relations: { implements: ['Movie', 'ADR-001 Layered Architecture'] } });
+    expect((await vault.getNote('Movie Repository'))?.relations.outgoing).toEqual({ implements: ['Movie', 'ADR-001 Layered Architecture'] });
+    expect((await vault.getNote('Movie'))?.relations.incoming).toEqual({ implemented_by: ['Movie Repository'] });
+  });
+
+  it('rejects relations that break the ontology without touching the repo', async () => {
+    await vault.ingest(component('Database'));
+    const before = commitCount();
+    await expect(vault.ingest({ ...watchlist, relations: { depends_on: ['Movie'] } })).rejects.toThrow(/cannot start from a concept/);
+    await expect(vault.ingest({ ...component('Recommender'), relations: { governed_by: ['Database'] } })).rejects.toThrow(
+      /cannot point to component note "Database"/,
+    );
+    await expect(vault.ingest({ ...component('Recommender'), relations: { depends_on: ['Ghost'] } })).rejects.toThrow(/no note "Ghost"/);
+    await expect(vault.ingest({ ...component('Database'), relations: { depends_on: ['Database'] } })).rejects.toThrow(/itself/);
+    await expect(vault.ingest({ ...component('Recommender'), relations: { uses: ['Database'] } as never })).rejects.toThrow(/unknown relation/);
+    await expect(vault.ingest({ ...component('Recommender'), properties: { depends_on: '[[Database]]' } })).rejects.toThrow(/managed/);
+    await expect(vault.ingest({ title: 'Brand New', type: 'concept' })).rejects.toThrow(/content is required/);
+    expect(commitCount()).toBe(before);
+    expect(run(work, 'status', '--porcelain')).toBe('');
+  });
+});
+
 describe('get_note', () => {
   it('finds a note by alias and lists backlinks', async () => {
     await vault.ingest(watchlist);
