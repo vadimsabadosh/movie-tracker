@@ -67,7 +67,7 @@ Every `ingest_note` asks the user for approval (guardrail **W6**). Before the fi
 
 1. `mcp__vault__ingest_note(<ADR>)`. If it replaces an older ADR, pass `relations: { supersedes: ["ADR-00X …"] }`.
 2. Mark the old ADR when superseding: `ingest_note(title: "ADR-00X …", type: "decision", properties: { status: "superseded", superseded_by: ["[[ADR-NNN …]]"] })`, with no `content`, so the body is kept.
-3. For each affected component: `ingest_note(title: "<Component>", type: "component", relations: { governed_by: ["ADR-NNN …"] })`, again with no `content`. The connector checks domain and range: `governed_by` must point to a decision.
+3. For each affected component **or concept**: `ingest_note(title: "<Note>", type: "component" | "concept", relations: { governed_by: ["ADR-NNN …"] })`, again with no `content`. Link a concept when the decision changes a domain rule (e.g. "one Watch Entry per Movie"); link a component when it changes code structure. The connector checks domain and range: `governed_by` must start from a component or concept and point to a decision.
 
 Rules:
 
