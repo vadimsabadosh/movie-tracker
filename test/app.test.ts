@@ -11,6 +11,15 @@ describe('app', () => {
     expect(openapi.openapi).toMatch(/^3\./);
   });
 
+  it('documents the Watch History query parameters on GET /watches (NFR-6)', async () => {
+    const app = await testApp();
+    const openapi = (await app.inject('/openapi.json')).json();
+    const names = (openapi.paths['/watches'].get.parameters as { name: string; in: string }[]).filter((p) => p.in === 'query').map((p) => p.name);
+    expect(names.sort()).toEqual(
+      ['genre', 'yearFrom', 'yearTo', 'ratingMin', 'ratingMax', 'watchedFrom', 'watchedTo', 'sort', 'order', 'limit', 'offset'].sort(),
+    );
+  });
+
   it('returns 404 in the common error format for unknown routes', async () => {
     const app = await testApp();
     const res = await app.inject('/nope');

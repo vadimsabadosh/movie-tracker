@@ -89,14 +89,26 @@ export class MovieRepository {
   }
 
   private withGenres(rows: MovieRow[]): Movie[] {
-    if (rows.length === 0) return [];
-    // json_each: one query for the whole page without building an IN (...) list.
-    const links = this.db
-      .prepare(
-        `SELECT mg.movie_id AS movieId, g.name FROM movie_genres mg JOIN genres g ON g.id = mg.genre_id
-         WHERE mg.movie_id IN (SELECT value FROM json_each(?)) ORDER BY g.name_key`,
-      )
-      .all(JSON.stringify(rows.map((r) => r.id))) as { movieId: number; name: string }[];
-    return rows.map((r) => ({ ...r, genres: links.filter((l) => l.movieId === r.id).map((l) => l.name) }));
+    const genres = genresByMovie(this.db, rows.map((r) => r.id));
+    return rows.map((r) => ({ ...r, genres: genres.get(r.id) ?? [] }));
   }
+}
+
+/** Genre names of each given movie, sorted by name_key; shared by repositories that return movies (D7). */
+export function genresByMovie(db: Database.Database, movieIds: number[]): Map<number, string[]> {
+  const result = new Map<number, string[]>();
+  if (movieIds.length === 0) return result;
+  // json_each: one query for the whole page without building an IN (...) list.
+  const links = db
+    .prepare(
+      `SELECT mg.movie_id AS movieId, g.name FROM movie_genres mg JOIN genres g ON g.id = mg.genre_id
+       WHERE mg.movie_id IN (SELECT value FROM json_each(?)) ORDER BY g.name_key`,
+    )
+    .all(JSON.stringify(movieIds)) as { movieId: number; name: string }[];
+  for (const { movieId, name } of links) {
+    const list = result.get(movieId);
+    if (list) list.push(name);
+    else result.set(movieId, [name]);
+  }
+  return result;
 }
