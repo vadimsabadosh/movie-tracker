@@ -530,7 +530,9 @@ function normalize(raw: Segment): Normalized {
     }
     if (first.includes('/')) {
       // ./ls or ~/bin/git is not the system tool, whatever its name
-      if (!SYSTEM_BIN.test(first)) hidden ??= `${first} is not a system executable`;
+      // normalise first: /usr/bin/../../tmp/x/ls is not in /usr/bin
+      const resolved = path.posix.normalize(first);
+      if (first.split('/').includes('..') || !SYSTEM_BIN.test(resolved)) hidden ??= `${first} is not a system executable`;
       words[0] = path.basename(first);
       changed = true;
     }
@@ -611,8 +613,12 @@ function buildContext(call: ToolCall, env: Env): Context {
         const seg = norm.seg;
         if (norm.changed) opaque = true; // wrappers and paths are never auto-allowed
         if (norm.hidden) hiddenCode ??= norm.hidden;
-        if (norm.nested !== null && depth < 3) walk(norm.nested, depth + 1);
-        if (!seg.words.length) continue;
+        if (norm.nested !== null) {
+          if (depth < 3) walk(norm.nested, depth + 1);
+          else hiddenCode ??= 'command nested too deep to inspect';
+        }
+        // `env -S '...' > file` empties the words but the redirect still writes: keep the segment.
+        if (!seg.words.length && !seg.redirects.length && !seg.globs.length) continue;
         let memo: Expansion | undefined;
         const at = dir;
         commands.push({
@@ -638,6 +644,7 @@ function buildContext(call: ToolCall, env: Env): Context {
         } else if (cmd === 'eval') {
           opaque = true;
           if (depth < 3) walk(seg.words.slice(1).join(' '), depth + 1);
+          else hiddenCode ??= 'eval nested too deep to inspect';
         } else if (INTERPRETER.test(cmd ?? '') && seg.words.slice(1).some((w) => INLINE_CODE.test(w))) {
           hiddenCode ??= `${cmd} runs inline code the guard cannot inspect`;
         }
@@ -668,19 +675,28 @@ const GLOB_CAP = 1000;
 /** Expands glob words the way the shell would, so `cat .e*` is checked as `cat .env`. */
 function expandGlobs(patterns: string[], cwd: string): Expansion {
   const paths: string[] = [];
+  let unverified: string | null = null;
+  // Every pattern that can be expanded is, so deny rules still see them; the rest only mark `unverified`.
   for (const pattern of patterns) {
     // `**` can walk a whole disk and time the hook out: refuse to guess (W9 asks the human).
-    if (pattern.includes('**')) return { paths, unverified: `${pattern} is too broad to check; use the Glob tool` };
+    if (pattern.includes('**')) {
+      unverified ??= `${pattern} is too broad to check; use the Glob tool`;
+      continue;
+    }
     try {
+      let count = 0;
       for (const match of globSync(expandHome(pattern), { cwd })) {
         paths.push(path.resolve(cwd, match));
-        if (paths.length >= GLOB_CAP) return { paths, unverified: `${pattern} matches more than ${GLOB_CAP} paths` };
+        if (++count >= GLOB_CAP) {
+          unverified ??= `${pattern} matches more than ${GLOB_CAP} paths`;
+          break;
+        }
       }
     } catch {
-      return { paths, unverified: `${pattern} could not be expanded` };
+      unverified ??= `${pattern} could not be expanded`;
     }
   }
-  return { paths, unverified: null };
+  return { paths, unverified };
 }
 
 export function evaluate(call: ToolCall, env: Env): Decision | null {

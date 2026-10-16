@@ -259,6 +259,10 @@ describe('globs are expanded against the filesystem', () => {
     expectDecision(bash('cat ../**/README.md', app), 'ask', 'W9', fsEnv);
   });
 
+  it('a ** glob does not stop the other globs from being checked', () => {
+    expectDecision(bash('cat ../**/x .e*', app), 'deny', 'B5', fsEnv);
+  });
+
   it('a harmless glob is not blocked but not auto-allowed either', () => {
     expectDecision(bash('ls src/*.ts', app), null, undefined, fsEnv);
   });
@@ -338,6 +342,20 @@ describe('security review, round 4', () => {
     expectDecision(bash('find . -name "*.log" | xargs rm'), 'ask', 'W8');
     expectDecision(bash('echo / | xargs -I{} rm -rf {}'), 'ask', 'W8');
     expectDecision(bash('xargs rm -rf / < list.txt'), 'deny', 'B7'); // literal targets are still checked
+  });
+});
+
+describe('security review, round 5 (regressions in round-4 code)', () => {
+  it('a redirect survives when env -S empties the command words', () => {
+    expectDecision(bash("env -S 'cat' > .claude/settings.json"), 'deny', 'B6');
+  });
+
+  it('a path with .. is not trusted as a system executable', () => {
+    expectDecision(bash('/usr/bin/../../tmp/x/ls'), 'ask', 'W8');
+  });
+
+  it('nesting beyond the analysis depth asks instead of passing silently', () => {
+    expectDecision(bash(`eval eval eval eval git status`), 'ask', 'W8');
   });
 });
 

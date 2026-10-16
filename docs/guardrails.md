@@ -75,7 +75,7 @@
 
 ## 4. Тестові кейси
 
-Автоматичні: `node --test harness/hooks/test/*.test.ts` — **54 тести**. `guard.test.ts` подає виклики інструментів у `evaluate` і запускає `guard.ts` як процес зі stdin JSON, як це робить Claude Code. `git-hooks.test.ts` перевіряє git hooks на тимчасовому репозиторії з bare-remote. Нижче — по три сценарії для кожного рівня; живу перевірку в Claude Code описано в розділі 5.
+Автоматичні: `node --test harness/hooks/test/*.test.ts` — **58 тестів**. `guard.test.ts` подає виклики інструментів у `evaluate` і запускає `guard.ts` як процес зі stdin JSON, як це робить Claude Code. `git-hooks.test.ts` перевіряє git hooks на тимчасовому репозиторії з bare-remote. Нижче — по три сценарії для кожного рівня; живу перевірку в Claude Code описано в розділі 5.
 
 ### Block
 
@@ -149,6 +149,12 @@
 | `cat ../**/README.md` — глоб, який hook не розкриває | **ask W9** (fail-closed) замість мовчазного пропуску |
 | `env -S 'git push --force'`, `sudo -u root git push origin main`, `timeout -s KILL 30 git push -f` | **deny B1**: опції обгорток розбираються за таблицею, `env -S` аналізується як команда |
 | `env --weird-option git status`, `… \| xargs rm` | **ask W8**: невідома опція чи аргументи зі stdin — не вгадуємо |
+
+Регресії в коді 4-го раунду, виправлені одразу:
+- `env -S 'cat' > .claude/settings.json` губив перенаправлення → тепер **deny B6**.
+- `cat ../**/x .e*`: `**` зупиняв розкриття інших глобів → тепер **deny B5**.
+- `/usr/bin/../../tmp/x/ls` вважався системним → тепер **ask W8**.
+- Вкладеність понад 3 рівні аналізу → тепер **ask W8**, а не мовчазний пропуск.
 
 ## 5. Перевірка в Claude Code
 
