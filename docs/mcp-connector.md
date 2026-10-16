@@ -89,4 +89,44 @@ npm run typecheck
 
 ## 5. Перевірка через агентну IDE
 
-_Заповнюється після викликів через Claude Code (завдання 3–4)._
+Усі виклики нижче зроблено агентом у Claude Code безпосередньо інструментами `mcp__github__*` і `mcp__vault__*` — без bash-обгорток і без доступу до файлів vault. Дата: 2026-10-16.
+
+### 5.1. Обидва сервери доступні
+
+| Виклик | Результат |
+|--------|-----------|
+| `vault.get_note("MOC - movie-tracker")` | MOC з frontmatter і backlinks |
+| `github.list_commits(movie-tracker, sha=pr3)` | 4 коміти гілки `pr3` |
+| `github.list_pull_requests(state=all)` | `[]` — PR у репозиторії немає, тому джерелом даних слугують коміти |
+
+### 5.2. Від змін у GitHub до нотаток у vault (завдання 4)
+
+Дані отримано через `github.list_commits` і `github.get_commit` (список змінених файлів і статистика), доповнено вмістом цих файлів і передано в `vault.ingest_note` з `source: github:movie-tracker@<sha>`.
+
+| Коміт застосунку | Завершена задача | Нотатка у vault | Статус | Коміт vault |
+|------------------|------------------|-----------------|--------|-------------|
+| `43a0aa6` | MCP-сервер vault (ПР № 3) | `Components/Vault MCP Server` | `created` | `92e19cb` |
+| `43a0aa6` | Підключення GitHub MCP лише для читання (ПР № 3) | `Decisions/ADR-006 Read-Only GitHub MCP as Data Source` | `created` | `5bef408` |
+| `dc15f72` | Вимоги до застосунку (ПР № 1) | `Glossary/Requirement ID` | `created` | `3de6a27` |
+
+Коміти `cd03936` і `69b64c7` (тестові зміни `main.ts`) свідомо пропущено: знання в них немає.
+
+Кожен виклик повернув `pushed: true`, `mocUpdated: true`, `warnings: []`. `get_note("MOC - movie-tracker")` показує кожну нову нотатку один раз у своєму розділі. `search_notes("github token read-only")` ставить ADR-006 першою. `git ls-remote` репозиторію vault: `refs/heads/pr3` = `3de6a27`, тобто всі три коміти на віддаленому репозиторії.
+
+### 5.3. Ідемпотентність і валідація (завдання 3)
+
+| Виклик | Очікувано | Отримано |
+|--------|-----------|----------|
+| Повторний `ingest_note("Requirement ID", …)` з тими самими аргументами | без змін | `unchanged`, без коміту |
+| `ingest_note("vault mcp server", …)`: назва в іншому регістрі, підмножина aliases і tags | та сама нотатка, без дубліката | `unchanged`, шлях `Components/Vault MCP Server.md` |
+| `ingest_note("ADR Bad Name", type=decision, requirements=["REQ-1"])` | відмова до будь-яких змін | помилка `decision title must look like "ADR-006 Short Title"`, без коміту |
+
+Висновки:
+- Дублікатів не виникає: пошук нотатки не залежить від регістру, а списки у frontmatter об'єднуються як множини. Тому виклик з підмножиною aliases чи tags дає той самий файл.
+- Повторний виклик не створює порожніх комітів і не змінює `updated`.
+- Некоректний вхід відхиляється до `git pull`, тож vault лишається незмінним.
+
+### 5.4. Права токена GitHub
+
+- Агент бачить лише інструменти читання (`list_commits`, `get_commit`, `list_pull_requests`, `pull_request_read`, `get_file_contents`, `search_code`…), бо так налаштовано заголовками `X-MCP-Readonly` і `X-MCP-Toolsets`. Інструментів створення PR, комітів чи issues у списку немає.
+- Токен fine-grained і бачить лише `movie-tracker`. Тому перевірити push у `movie-tracker-vault` через GitHub MCP неможливо, і для цього використано `git ls-remote`. Так і задумано: у vault пише лише сервер `vault`.
