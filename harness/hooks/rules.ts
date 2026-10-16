@@ -57,6 +57,8 @@ interface Command {
   cwdKnown: boolean;
   /** Glob words expanded to absolute paths (computed on first use). */
   readonly expanded: string[];
+  /** Why some glob could not be fully expanded, or null. */
+  readonly globUnverified: string | null;
 }
 
 const FILE_READ_TOOLS = new Set(['Read', 'Glob', 'Grep', 'LS']);
@@ -359,6 +361,13 @@ export const RULES: Rule[] = [
     title: 'Shell or interpreter running code the guard cannot see',
     check: (ctx) => ctx.hiddenCode,
   },
+  {
+    id: 'W9',
+    level: 'ask',
+    title: 'Glob too broad to check',
+    // Fail closed: B4–B7 could not see every path, so a human decides.
+    check: (ctx) => ctx.commands.map((c) => c.globUnverified).find((r) => r !== null) ?? null,
+  },
 
   // ----- allow -----
   {
@@ -419,7 +428,8 @@ const SAFE_FLAGS: Record<string, RegExp> = {
   find: /^(-(name|iname|type|path|ipath|wholename|regex|maxdepth|mindepth|newer|size|empty|print|print0|not|o|or|a|and|mtime|mmin|prune)|!)$/,
   sort: /^(-[urnfhVbs]+|-[kt])$/,
   tree: /^-[adfL]$|^-I$/,
-  diff: /^-[urqNwbBi]+$/,
+  // no -r/-N: a recursive diff against an empty directory prints .env
+  diff: /^-[uqwbBi]+$/,
   stat: /^-[fLs]$/,
 };
 // Commands without flags that matter (or with no flags allowed).
@@ -471,32 +481,103 @@ function isSafeCommand(seg: Segment): boolean {
 const SHELL = /^(ba|z|da|k|fi)?sh$/;
 const INTERPRETER = /^(node|python\d*(\.\d+)?|perl|ruby|php|deno|bun)$/;
 const INLINE_CODE = /^(-e|-E|-c|-p|--eval|--print|-r)$/;
-/** Prefixes that run the rest of the words as a command. */
-const WRAPPER = /^(env|command|builtin|exec|nohup|nice|time|sudo|doas|timeout|stdbuf|xargs)$/;
+/**
+ * Prefixes that run the rest of the words as a command, with the options each one accepts.
+ * `arg` options take a value; anything not listed is unknown and the call needs approval.
+ */
+const WRAPPERS: Record<string, { flag?: RegExp; arg?: RegExp; positional?: RegExp }> = {
+  env: { flag: /^(-i|-0|-v|--ignore-environment|--null|--debug)$/, arg: /^(-u|--unset)$/ },
+  command: { flag: /^-p$/ },
+  builtin: {},
+  exec: { flag: /^-[cl]$/, arg: /^-a$/ },
+  nohup: {},
+  nice: { flag: /^-\d+$/, arg: /^(-n|--adjustment)$/ },
+  time: { flag: /^-p$/ },
+  sudo: { flag: /^-[EHnSksb]+$/, arg: /^-[ugCphUrt]$/ },
+  doas: { flag: /^-[ns]+$/, arg: /^-[uC]$/ },
+  timeout: { flag: /^(-v|--foreground|--preserve-status|--verbose)$/, arg: /^(-s|-k|--signal|--kill-after)$/, positional: /^\d+(\.\d+)?[smhd]?$/ },
+  stdbuf: { flag: /^(-[ioe]\S+|--(input|output|error)=\S+)$/, arg: /^-[ioe]$/ },
+};
+/** Directories whose executables are trusted to be the real system tools. */
+const SYSTEM_BIN = /^\/(usr\/(local\/)?)?s?bin\/|^\/opt\/homebrew\/bin\//;
+
+interface Normalized {
+  seg: Segment;
+  /** Something was stripped or rewritten: never auto-allow. */
+  changed: boolean;
+  /** Reason the real command cannot be determined (→ W8 ask). */
+  hidden: string | null;
+  /** `env -S "cmd args"`: a command line to analyse separately. */
+  nested: string | null;
+}
 
 /**
  * `env A=1 nice -n 5 /usr/bin/git push` → `git push`: drops variable assignments and wrapper
- * commands (with their options) and reduces a path to its basename, so rules see the real command.
+ * commands with their options, so rules see the real command. Unknown wrapper options, `xargs`
+ * (arguments come from stdin) and executables outside system directories are reported, not guessed.
  */
-function normalize(seg: Segment): Segment {
-  const words = [...seg.words];
+function normalize(raw: Segment): Normalized {
+  const words = [...raw.words];
+  let changed = false;
+  let hidden: string | null = null;
+  let nested: string | null = null;
   for (let guard = 0; guard < 10 && words.length; guard++) {
-    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0] ?? '')) {
+    const first = words[0] ?? '';
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(first)) {
       words.shift();
+      changed = true;
       continue;
     }
-    if (words[0]?.includes('/')) words[0] = path.basename(words[0]);
-    if (!WRAPPER.test(words[0] ?? '')) break;
-    const wrapper = words.shift();
-    // options of the wrapper and, for timeout/nice, their numeric argument
-    while (words.length && (words[0]?.startsWith('-') || /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0] ?? ''))) {
-      const opt = words.shift() ?? '';
-      if (/^-(n|u|g|s|k|I|L|P|o|i|e)$/.test(opt) && words.length) words.shift();
+    if (first.includes('/')) {
+      // ./ls or ~/bin/git is not the system tool, whatever its name
+      if (!SYSTEM_BIN.test(first)) hidden ??= `${first} is not a system executable`;
+      words[0] = path.basename(first);
+      changed = true;
     }
-    if (wrapper === 'timeout' && /^\d/.test(words[0] ?? '')) words.shift();
+    const name = words[0] ?? '';
+    if (name === 'xargs') {
+      hidden ??= 'xargs takes its arguments from stdin; targets cannot be checked';
+      words.shift();
+      changed = true;
+      while (words[0]?.startsWith('-')) {
+        const opt = words.shift() ?? '';
+        if (/^-[IdEnLPs]$/.test(opt)) words.shift();
+      }
+      continue;
+    }
+    const spec = WRAPPERS[name];
+    if (!spec) break;
+    words.shift();
+    changed = true;
+    while (words.length) {
+      const opt = words[0] ?? '';
+      if (name === 'env' && /^[A-Za-z_][A-Za-z0-9_]*=/.test(opt)) {
+        words.shift();
+      } else if (name === 'env' && (opt === '-S' || opt === '--split-string' || opt.startsWith('--split-string=') || /^-S./.test(opt))) {
+        // env -S 'git push --force' splits the string into the command line
+        words.shift();
+        nested = opt.startsWith('--split-string=') ? opt.slice(15) : /^-S./.test(opt) ? opt.slice(2) : (words.shift() ?? '');
+        if (words.length) nested += ` ${words.join(' ')}`;
+        return { seg: { ...raw, words: [] }, changed: true, hidden, nested };
+      } else if (opt === '--') {
+        words.shift();
+        break;
+      } else if (opt.startsWith('-')) {
+        const [optName] = opt.split('=');
+        if (spec.flag?.test(opt)) words.shift();
+        else if (spec.arg?.test(optName ?? '')) {
+          words.shift();
+          if (!opt.includes('=')) words.shift();
+        } else {
+          hidden ??= `unknown ${name} option ${opt}; the wrapped command cannot be determined`;
+          return { seg: { ...raw, words }, changed: true, hidden, nested };
+        }
+      } else if (spec.positional?.test(opt)) {
+        words.shift();
+      } else break;
+    }
   }
-  if (words[0]?.includes('/')) words[0] = path.basename(words[0]);
-  return { ...seg, words };
+  return { seg: { ...raw, words }, changed, hidden, nested };
 }
 
 function buildContext(call: ToolCall, env: Env): Context {
@@ -526,11 +607,25 @@ function buildContext(call: ToolCall, env: Env): Context {
       const parsed = parseCommand(text);
       opaque ||= parsed.opaque;
       for (const raw of parsed.segments) {
-        const seg = normalize(raw);
-        if (seg.words.length !== raw.words.length) opaque = true; // wrappers are never auto-allowed
-        let memo: string[] | undefined;
+        const norm = normalize(raw);
+        const seg = norm.seg;
+        if (norm.changed) opaque = true; // wrappers and paths are never auto-allowed
+        if (norm.hidden) hiddenCode ??= norm.hidden;
+        if (norm.nested !== null && depth < 3) walk(norm.nested, depth + 1);
+        if (!seg.words.length) continue;
+        let memo: Expansion | undefined;
         const at = dir;
-        commands.push({ seg, cwd: at, cwdKnown, get expanded() { return (memo ??= expandGlobs(seg.globs, at)); } });
+        commands.push({
+          seg,
+          cwd: at,
+          cwdKnown,
+          get expanded() {
+            return (memo ??= expandGlobs(seg.globs, at)).paths;
+          },
+          get globUnverified() {
+            return (memo ??= expandGlobs(seg.globs, at)).unverified;
+          },
+        });
         const [cmd] = seg.words;
         if (SHELL.test(cmd ?? '')) {
           // `bash -c "..."`, `sh -xc '...'`: analyse the script (bounded depth); otherwise the code is hidden.
@@ -562,22 +657,30 @@ function buildContext(call: ToolCall, env: Env): Context {
   return { tool: call.tool_name, input, env, paths, writes: FILE_WRITE_TOOLS.has(call.tool_name), commands, opaque, hiddenCode };
 }
 
+interface Expansion {
+  paths: string[];
+  /** A pattern was not (fully) expanded: `**`, too many matches or an error. */
+  unverified: string | null;
+}
+
+const GLOB_CAP = 1000;
+
 /** Expands glob words the way the shell would, so `cat .e*` is checked as `cat .env`. */
-function expandGlobs(patterns: string[], cwd: string): string[] {
-  const out: string[] = [];
+function expandGlobs(patterns: string[], cwd: string): Expansion {
+  const paths: string[] = [];
   for (const pattern of patterns) {
-    // `**` can walk a whole disk and time the hook out; such words already prevent `allow`.
-    if (pattern.includes('**')) continue;
+    // `**` can walk a whole disk and time the hook out: refuse to guess (W9 asks the human).
+    if (pattern.includes('**')) return { paths, unverified: `${pattern} is too broad to check; use the Glob tool` };
     try {
       for (const match of globSync(expandHome(pattern), { cwd })) {
-        out.push(path.resolve(cwd, match));
-        if (out.length >= 1000) return out;
+        paths.push(path.resolve(cwd, match));
+        if (paths.length >= GLOB_CAP) return { paths, unverified: `${pattern} matches more than ${GLOB_CAP} paths` };
       }
     } catch {
-      // unreadable directory or invalid pattern: nothing to add
+      return { paths, unverified: `${pattern} could not be expanded` };
     }
   }
-  return out;
+  return { paths, unverified: null };
 }
 
 export function evaluate(call: ToolCall, env: Env): Decision | null {

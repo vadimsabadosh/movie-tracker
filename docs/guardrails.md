@@ -11,7 +11,7 @@
 | **Allow** (A) | Виконується без підтвердження | PreToolUse hook → `allow` |
 | — | Решта дій | Звичайні налаштування дозволів Claude Code |
 
-Порядок: будь-яке block-правило > будь-яке warn > allow (лише якщо **кожна** частина виклику дозволена) > без рішення. Для Bash команда розбивається на прості команди (`&&`, `;`, `|`, переходи `cd` враховуються), тож `npm test && git push --force` блокується. Перед перевіркою знімаються обгортки й присвоєння (`env`, `nice`, `timeout`, `sudo`, `VAR=x`, `/usr/bin/git` → `git`), а `bash -c`/`eval` аналізуються рекурсивно.
+Порядок: будь-яке block-правило > будь-яке warn > allow (лише якщо **кожна** частина виклику дозволена) > без рішення. Для Bash команда розбивається на прості команди (`&&`, `;`, `|`, переходи `cd` враховуються), тож `npm test && git push --force` блокується. Перед перевіркою знімаються обгортки з їхніми опціями за таблицею для кожної обгортки (`env`, `nice`, `timeout`, `sudo`, `VAR=x`, `/usr/bin/git` → `git`), а `bash -c`, `eval` і `env -S` аналізуються рекурсивно.
 
 | Файл | Роль |
 |------|------|
@@ -50,7 +50,8 @@
 | W5 | Ядро рекомендацій (NFR-5) | Edit/Write у `src/recommendation/**` — зміна впливає на детермінований результат |
 | W6 | Запис у базу знань | `mcp__vault__ingest_note` (коміт і push у репозиторій vault) |
 | W7 | Мережа | `curl`, `wget`, `ssh`, `scp`, `rsync`, `nc`; `gh` окрім читання (`pr view/list/diff/checks`, `issue view/list`…) |
-| W8 | Прихований код | Оболонка зі скриптом-файлом чи зі stdin (`bash deploy.sh`, `… \| sh`, `bash <<EOF`), інтерпретатор із кодом у рядку (`node -e`, `python3 -c`, `perl -e`) — hook не бачить, що буде виконано |
+| W8 | Прихований код | Оболонка зі скриптом-файлом чи зі stdin (`bash deploy.sh`, `… \| sh`, `bash <<EOF`), інтерпретатор із кодом у рядку (`node -e`, `python3 -c`), виконуваний файл поза системними теками (`./tools/ls`), `xargs` (аргументи зі stdin), невідома опція обгортки (`env --x`, `nice --x`) — hook не бачить, що буде виконано |
+| W9 | Надто широкий глоб | `**`, понад 1000 збігів чи помилка розкриття: B4–B7 не бачать усіх шляхів, тож вирішує людина (замість глобу в Bash — інструмент Glob) |
 
 ### Allow — без підтвердження
 
@@ -58,7 +59,7 @@
 |----|---------|----------------------|
 | A1 | Читання проєкту | Read/Glob/Grep у межах репозиторію застосунку (не секрети, не vault) |
 | A2 | Рутинні зміни | Edit/Write у `src/`, `test/`, `docs/`, `harness/vault-mcp/{src,test}/` — крім W3–W5 і B6 |
-| A3 | Перевірки й інспекція | `npm test`, `npm run test/lint/typecheck/build/check`, `npx vitest/tsc/eslint`, `prettier --check`, `node --test`; read-only git (`status`, `diff`, `log`, `show`, `branch` без аргументів, `ls-remote`, `fetch`…); `ls`, `cat`, `head`, `tail`, `wc`, `grep` (не рекурсивний), `rg`, `find`, `sort`, `tree`, `diff`, `stat`. **Кожен прапорець має бути в білому списку для своєї команди** (`SAFE_FLAGS` у `rules.ts`): невідомий прапорець → без рішення. Також: кожна частина команди така, немає перенаправлення у файл, `$(…)`, `$VAR`, глобів, обгорток, `bash -c`/`eval` |
+| A3 | Перевірки й інспекція | `npm test`, `npm run test/lint/typecheck/build/check`, `npx vitest/tsc/eslint`, `prettier --check`, `node --test`; read-only git (`status`, `diff`, `log`, `show`, `branch` без аргументів, `ls-remote`, `fetch`…); `ls`, `cat`, `head`, `tail`, `wc`, `grep` і `diff` (не рекурсивні), `rg`, `find`, `sort`, `tree`, `stat`. **Кожен прапорець має бути в білому списку для своєї команди** (`SAFE_FLAGS` у `rules.ts`): невідомий прапорець → без рішення. Також: кожна частина команди така, немає перенаправлення у файл, `$(…)`, `$VAR`, глобів, обгорток, `bash -c`/`eval` |
 | A4 | Читання знань і GitHub | `mcp__vault__get_note`, `mcp__vault__search_notes`, усі `mcp__github__*` (сервер підключено read-only, ADR-006) |
 
 ## 3. Що змінилося порівняно з ПР № 1
@@ -74,7 +75,7 @@
 
 ## 4. Тестові кейси
 
-Автоматичні: `node --test harness/hooks/test/*.test.ts` — **50 тестів**. `guard.test.ts` подає виклики інструментів у `evaluate` і запускає `guard.ts` як процес зі stdin JSON, як це робить Claude Code. `git-hooks.test.ts` перевіряє git hooks на тимчасовому репозиторії з bare-remote. Нижче — по три сценарії для кожного рівня; живу перевірку в Claude Code описано в розділі 5.
+Автоматичні: `node --test harness/hooks/test/*.test.ts` — **54 тести**. `guard.test.ts` подає виклики інструментів у `evaluate` і запускає `guard.ts` як процес зі stdin JSON, як це робить Claude Code. `git-hooks.test.ts` перевіряє git hooks на тимчасовому репозиторії з bare-remote. Нижче — по три сценарії для кожного рівня; живу перевірку в Claude Code описано в розділі 5.
 
 ### Block
 
@@ -138,6 +139,16 @@
 | `cd $X && rm -rf build`, `cd - && …`, `cd "$DIR" && echo x > f` | **deny B6/B7**: після переходу в невідому теку відносну ціль не перевірити |
 | `cat <<END-1 …` (роздільник не цілим словом) | команда непрозора, рядки аналізуються як команди |
 | `cat /**/*.md` | `**` не розкривається (не обходимо весь диск, hook не впаде за тайм-аутом), автоматичного дозволу немає |
+
+### Четвертий раунд security review
+
+| Спроба | Реакція |
+|--------|---------|
+| `./tools/ls`, `~/bin/git status` — чужий файл з ім'ям системної утиліти | **ask W8**; лише `/bin`, `/usr/bin`, `/usr/local/bin`, `/opt/homebrew/bin` вважаються системними |
+| `diff -r . /tmp/empty` — друкує вміст `.env` | **без рішення**: `-r`/`-N` прибрано з білого списку `diff` |
+| `cat ../**/README.md` — глоб, який hook не розкриває | **ask W9** (fail-closed) замість мовчазного пропуску |
+| `env -S 'git push --force'`, `sudo -u root git push origin main`, `timeout -s KILL 30 git push -f` | **deny B1**: опції обгорток розбираються за таблицею, `env -S` аналізується як команда |
+| `env --weird-option git status`, `… \| xargs rm` | **ask W8**: невідома опція чи аргументи зі stdin — не вгадуємо |
 
 ## 5. Перевірка в Claude Code
 

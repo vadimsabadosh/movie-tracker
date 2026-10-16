@@ -254,8 +254,9 @@ describe('globs are expanded against the filesystem', () => {
     expectDecision(bash('rm -rf harness/ho*', app), 'deny', 'B6', fsEnv);
   });
 
-  it('** patterns are not expanded (no full-disk walk) and never auto-allowed', () => {
-    expectDecision(bash('cat /**/*.md', app), null, undefined, fsEnv);
+  it('** patterns are not expanded (no full-disk walk): the human decides (W9)', () => {
+    expectDecision(bash('cat /**/*.md', app), 'ask', 'W9', fsEnv);
+    expectDecision(bash('cat ../**/README.md', app), 'ask', 'W9', fsEnv);
   });
 
   it('a harmless glob is not blocked but not auto-allowed either', () => {
@@ -306,6 +307,37 @@ describe('security review, round 3', () => {
     expectDecision(bash('cd - && rm -rf build'), 'deny');
     expectDecision(bash('cd "$DIR" && echo x > notes.txt'), 'deny', 'B6');
     expectDecision(bash('cd $DIR && ls'), null);
+  });
+});
+
+describe('security review, round 4', () => {
+  it('an executable outside system directories is not the tool its name suggests', () => {
+    expectDecision(bash('./tools/ls'), 'ask', 'W8');
+    expectDecision(bash('~/bin/git status'), 'ask', 'W8');
+    expectDecision(bash('/usr/bin/git status'), null); // system git, but rewritten: no auto-allow
+    expectDecision(bash('/usr/bin/git push --force'), 'deny', 'B1');
+  });
+
+  it('diff cannot be used to print directories recursively', () => {
+    expectDecision(bash('diff -r . /tmp/empty'), null);
+    expectDecision(bash('diff -N .env.example .env.local'), 'deny', 'B5');
+    expectDecision(bash('diff -u a.ts b.ts'), 'allow', 'A3');
+  });
+
+  it('wrapper options are parsed per wrapper; env -S is analysed; unknown options ask', () => {
+    expectDecision(bash("env -S 'git push --force'"), 'deny', 'B1');
+    expectDecision(bash('env --split-string="git reset --hard"'), 'deny', 'B3');
+    expectDecision(bash('sudo -u root git push origin main'), 'deny', 'B1');
+    expectDecision(bash('timeout -s KILL 30 git push -f'), 'deny', 'B1');
+    expectDecision(bash('env -i PATH=/usr/bin npm publish'), 'deny', 'B8');
+    expectDecision(bash('env --weird-option git status'), 'ask', 'W8');
+    expectDecision(bash('nice --frobnicate rm -rf build'), 'ask', 'W8');
+  });
+
+  it('xargs targets come from stdin and cannot be checked', () => {
+    expectDecision(bash('find . -name "*.log" | xargs rm'), 'ask', 'W8');
+    expectDecision(bash('echo / | xargs -I{} rm -rf {}'), 'ask', 'W8');
+    expectDecision(bash('xargs rm -rf / < list.txt'), 'deny', 'B7'); // literal targets are still checked
   });
 });
 
