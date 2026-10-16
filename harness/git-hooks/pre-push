@@ -22,10 +22,15 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   fi
 
   # B1: no force-push — the remote tip must be an ancestor of what we push.
-  if [ "$remote_sha" != "$zero" ] && git cat-file -e "$remote_sha" 2>/dev/null &&
-     ! git merge-base --is-ancestor "$remote_sha" "$local_sha"; then
-    echo "guardrail B1: non-fast-forward push to '$name' is blocked (history rewrite)." >&2
-    status=1
+  if [ "$remote_sha" != "$zero" ]; then
+    if ! git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+      # Fail closed: an unknown remote tip means the push cannot be proven fast-forward.
+      echo "guardrail B1: remote '$name' has commits this clone does not know; run git fetch first." >&2
+      status=1
+    elif ! git merge-base --is-ancestor "$remote_sha" "$local_sha"; then
+      echo "guardrail B1: non-fast-forward push to '$name' is blocked (history rewrite)." >&2
+      status=1
+    fi
   fi
 done
 

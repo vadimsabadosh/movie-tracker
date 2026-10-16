@@ -83,6 +83,16 @@ describe('pre-push', () => {
     assert.match(rejected('push', '--force', 'origin', 'pr4') ?? '', /guardrail B1: non-fast-forward/);
   });
 
+  it('B1 fails closed when the remote has commits this clone has not fetched', () => {
+    const other = path.join(dir, 'other');
+    execFileSync('git', ['clone', '--quiet', '-b', 'pr4', path.join(dir, 'remote.git'), other], { stdio: 'ignore' });
+    execFileSync('git', ['-c', 'user.email=o@example.com', '-c', 'user.name=O', 'commit', '--quiet', '--allow-empty', '-m', 'elsewhere'], { cwd: other });
+    execFileSync('git', ['push', '--quiet', 'origin', 'pr4'], { cwd: other });
+    git('reset', '--quiet', '--soft', 'origin/pr4'); // undo the amend: local is a plain fast-forward of what we last saw
+    git('commit', '--quiet', '--allow-empty', '-m', 'local work');
+    assert.match(rejected('push', 'origin', 'pr4') ?? '', /guardrail B1: .*git fetch first/);
+  });
+
   it('B3 blocks deleting a remote branch', () => {
     assert.match(rejected('push', 'origin', '--delete', 'pr4') ?? '', /guardrail B3/);
   });

@@ -1,5 +1,6 @@
 // Guardrail rules (docs/guardrails.md). Each rule inspects one tool call and either matches or not.
 // Precedence: any block (deny) > any warn (ask) > allow when every part of the call is allowed > no decision.
+import { globSync } from 'node:fs';
 import path from 'node:path';
 import { gitInvocation, parseCommand, type Segment } from './shell.ts';
 
@@ -42,8 +43,8 @@ interface Context {
   /** Absolute paths a file tool touches. */
   paths: string[];
   writes: boolean;
-  /** Bash only: simple commands with the directory each runs in. */
-  commands: { seg: Segment; cwd: string }[];
+  /** Bash only: simple commands with the directory each runs in and their glob words expanded to absolute paths. */
+  commands: { seg: Segment; cwd: string; expanded: string[] }[];
   opaque: boolean;
 }
 
@@ -172,9 +173,13 @@ export const RULES: Rule[] = [
     title: 'Direct access to the vault repository',
     check: (ctx) => {
       if (ctx.paths.some((p) => within(p, ctx.env.vaultDir))) return 'the vault is reachable only through the vault MCP tools (ADR-005)';
-      for (const { seg, cwd } of ctx.commands) {
+      for (const { seg, cwd, expanded } of ctx.commands) {
         if (seg.words[0] === 'git' && seg.words[1] === 'ls-remote') continue; // remote URL, not the clone
-        if ([...subjectWords(seg), ...seg.redirects].some((w) => mentionsVault(ctx, w, cwd)) || within(cwd, ctx.env.vaultDir)) {
+        if (
+          [...subjectWords(seg), ...seg.redirects].some((w) => mentionsVault(ctx, w, cwd)) ||
+          expanded.some((p) => within(p, ctx.env.vaultDir)) ||
+          within(cwd, ctx.env.vaultDir)
+        ) {
           return 'the vault is reachable only through the vault MCP tools (ADR-005)';
         }
       }
@@ -188,7 +193,9 @@ export const RULES: Rule[] = [
     check: (ctx) => {
       const secret = ctx.paths.find((p) => SECRET_FILE.test(p));
       if (secret) return `${path.basename(secret)} holds secrets`;
-      for (const { seg } of ctx.commands) {
+      for (const { seg, expanded } of ctx.commands) {
+        const hidden = expanded.find((p) => SECRET_FILE.test(p));
+        if (hidden) return `${path.basename(hidden)} holds secrets (matched by a glob)`;
         for (const w of subjectWords(seg)) {
           if (SECRET_FILE.test(w)) return `${w} holds secrets`;
           if (SECRET_VAR.test(w)) return `${SECRET_VAR.exec(w)?.[0]} is a secret`;
@@ -209,7 +216,7 @@ export const RULES: Rule[] = [
         const guard = ctx.paths.find((p) => inProject(ctx, p) && isGuardFile(rel(ctx, p)));
         if (guard) return `${rel(ctx, guard)} is a guardrail; only the student changes it`;
       }
-      for (const { seg, cwd } of ctx.commands) {
+      for (const { seg, cwd, expanded } of ctx.commands) {
         const g = git(seg);
         const noVerify = g !== null && (g.args.includes('--no-verify') || (g.sub === 'commit' && hasFlag(subjectWords(seg).slice(2), '-n')));
         if (noVerify && ['commit', 'push', 'merge'].includes(g.sub)) return '--no-verify skips the git guardrail hooks';
@@ -217,7 +224,7 @@ export const RULES: Rule[] = [
         const writer = ['rm', 'mv', 'cp', 'tee', 'truncate', 'chmod', 'ln', 'install', 'touch', 'dd'].includes(seg.words[0] ?? '');
         const sedInPlace = ['sed', 'perl'].includes(seg.words[0] ?? '') && seg.words.some((w) => /^-[a-zA-Z]*i/.test(w));
         const gitRestore = g !== null && (g.sub === 'restore' || g.sub === 'checkout' || g.sub === 'rm' || g.sub === 'mv');
-        const targets = [...seg.redirects, ...(writer || sedInPlace || gitRestore ? seg.words.slice(1) : [])];
+        const targets = [...seg.redirects, ...(writer || sedInPlace || gitRestore ? [...seg.words.slice(1), ...expanded] : [])];
         const hit = targets.find((w) => {
           const abs = path.resolve(cwd, w);
           return inProject(ctx, abs) && holdsGuardFile(rel(ctx, abs));
@@ -232,12 +239,12 @@ export const RULES: Rule[] = [
     level: 'deny',
     title: 'Delete data or files outside the project',
     check: (ctx) => {
-      for (const { seg, cwd } of ctx.commands) {
+      for (const { seg, cwd, expanded } of ctx.commands) {
         const cmd = seg.words[0];
         if (cmd !== 'rm' && cmd !== 'unlink' && cmd !== 'shred') continue;
-        for (const w of seg.words.slice(1).filter((a) => !a.startsWith('-'))) {
+        for (const w of [...seg.words.slice(1).filter((a) => !a.startsWith('-')), ...expanded]) {
           const abs = path.resolve(cwd, expandHome(w));
-          if (/^[~$]/.test(w) || !inProject(ctx, abs) || abs === ctx.env.projectDir) return `rm outside the project: ${w}`;
+          if (/^~/.test(w) || w.includes('$') || !inProject(ctx, abs) || abs === ctx.env.projectDir) return `rm outside the project: ${w}`;
           if (DATA_FILE.test(w) || rel(ctx, abs).startsWith('data/')) return `${w} is a database or user data file`;
           if (rel(ctx, abs) === '.git' || rel(ctx, abs).startsWith('.git/')) return 'deleting .git destroys the repository';
         }
@@ -367,30 +374,50 @@ export const RULES: Rule[] = [
 ];
 
 const READ_ONLY_GIT = new Set(['status', 'diff', 'log', 'show', 'ls-files', 'ls-remote', 'rev-parse', 'blame', 'fetch', 'remote', 'describe', 'shortlog', 'grep', 'merge-base', 'rev-list', 'cat-file']);
-const INSPECT = new Set(['ls', 'cat', 'head', 'tail', 'wc', 'grep', 'rg', 'find', 'pwd', 'echo', 'which', 'tree', 'file', 'stat', 'diff', 'sort', 'uniq', 'cd', 'true', 'node', 'jq']);
+// Allowed by name only when no argument can make them run programs or write files
+// (sed, uniq and jq are left out: `sed 's/a/b/w file'`, `sed e`, `uniq in out` write or execute; `jq -n env` prints tokens).
+const INSPECT = new Set(['ls', 'cat', 'head', 'tail', 'wc', 'grep', 'rg', 'find', 'pwd', 'echo', 'which', 'tree', 'file', 'stat', 'diff', 'sort', 'cd', 'true']);
+// Arguments that turn an inspection command into code execution or a file write.
+const UNSAFE_ARG: Record<string, RegExp> = {
+  git: /^(--output|-O|--open-files-in-pager|--upload-pack|--receive-pack|--exec|--ext-diff|--textconv|--run|--config-env)/,
+  rg: /^(--pre|--pre-glob)/,
+  find: /^-(delete|exec|execdir|ok|okdir|fprint|fprint0|fprintf|fls)$/,
+  sort: /^(-o|--output|-[a-zA-Z]*o)/,
+  tree: /^(-o|-R)/,
+};
+const hasUnsafeArg = (cmd: string, words: string[]) => (UNSAFE_ARG[cmd] ? words.some((w) => UNSAFE_ARG[cmd]!.test(w)) : false);
+/** Only `-C <dir>` may come between `git` and its subcommand; `-c key=value` can set core.pager and similar. */
+function gitGlobalsSafe(words: string[]): boolean {
+  for (let i = 1; i < words.length; i++) {
+    const w = words[i] ?? '';
+    if (w === '-C') i++;
+    else return !w.startsWith('-');
+  }
+  return true;
+}
 
 function isGhRead(seg: Segment): boolean {
   return /^(pr|issue|run|repo|release)$/.test(seg.words[1] ?? '') && /^(view|list|diff|checks|status)$/.test(seg.words[2] ?? '');
 }
 
 function isSafeCommand(seg: Segment): boolean {
-  if (seg.redirects.length) return false;
+  // Unknown values (`$VAR`, globs) cannot be checked against B4–B7, so they are never auto-allowed.
+  if (seg.redirects.length || seg.dynamic || seg.globs.length) return false;
   const [cmd, a1, a2] = seg.words;
   const g = git(seg);
   if (g) {
+    if (!gitGlobalsSafe(seg.words) || hasUnsafeArg('git', g.args)) return false;
     if (g.sub === 'branch') return g.args.every((a) => a.startsWith('-') && !/^-[a-zA-Z]*[dDmMcC]/.test(a) && a !== '--delete');
     if (g.sub === 'remote') return g.args.length === 0 || g.args[0] === '-v' || g.args[0] === 'show';
     return READ_ONLY_GIT.has(g.sub);
   }
   if (cmd === 'npm' && a1 === 'test') return true;
   if (cmd === 'npm' && a1 === 'run' && /^(test|lint|typecheck|build|format:check|check)$/.test(a2 ?? '')) return true;
-  if (cmd === 'npm' && /^(ls|outdated|view|audit)$/.test(a1 ?? '')) return true;
+  if (cmd === 'npm' && /^(ls|outdated|view|audit)$/.test(a1 ?? '')) return !seg.words.includes('fix');
   if (cmd === 'npx' && /^(vitest|tsc|eslint)$/.test(a1 ?? '') && !seg.words.includes('--fix')) return true;
   if (cmd === 'npx' && a1 === 'prettier' && seg.words.includes('--check')) return true;
   if (cmd === 'node') return a1 === '--test' || a1 === '--version' || a1 === '-v';
-  if (cmd === 'sed') return !seg.words.some((w) => /^-[a-zA-Z]*i/.test(w) || w === '--in-place');
-  if (cmd === 'find') return !seg.words.some((w) => /^-(delete|exec|execdir|ok|fprint)/.test(w));
-  return INSPECT.has(cmd ?? '');
+  return INSPECT.has(cmd ?? '') && !hasUnsafeArg(cmd ?? '', seg.words.slice(1));
 }
 
 // ---------- evaluation ----------
@@ -415,15 +442,38 @@ function buildContext(call: ToolCall, env: Env): Context {
   let opaque = false;
   const command = str('command');
   if (call.tool_name === 'Bash' && command) {
-    const parsed = parseCommand(command);
-    opaque = parsed.opaque;
     let dir = cwd;
-    for (const seg of parsed.segments) {
-      commands.push({ seg, cwd: dir });
-      if (seg.words[0] === 'cd') dir = path.resolve(dir, expandHome(seg.words[1] ?? process.env.HOME ?? '/'));
-    }
+    // `bash -c "..."` and `eval ...` run their argument as a command line: analyse it too (bounded depth).
+    const walk = (text: string, depth: number) => {
+      const parsed = parseCommand(text);
+      opaque ||= parsed.opaque;
+      for (const seg of parsed.segments) {
+        commands.push({ seg, cwd: dir, expanded: expandGlobs(seg.globs, dir) });
+        const [cmd, flag, script] = seg.words;
+        const nested = /^(ba|z|da|k)?sh$/.test(cmd ?? '') && flag === '-c' ? script : cmd === 'eval' ? seg.words.slice(1).join(' ') : undefined;
+        if (nested !== undefined) {
+          opaque = true; // never auto-allow an interpreter
+          if (depth < 3) walk(nested, depth + 1);
+        }
+        if (seg.words[0] === 'cd') dir = path.resolve(dir, expandHome(seg.words[1] ?? process.env.HOME ?? '/'));
+      }
+    };
+    walk(command, 0);
   }
   return { tool: call.tool_name, input, env, paths, writes: FILE_WRITE_TOOLS.has(call.tool_name), commands, opaque };
+}
+
+/** Expands glob words the way the shell would, so `cat .e*` is checked as `cat .env`. */
+function expandGlobs(patterns: string[], cwd: string): string[] {
+  const out: string[] = [];
+  for (const pattern of patterns) {
+    try {
+      for (const match of globSync(expandHome(pattern), { cwd })) out.push(path.resolve(cwd, match));
+    } catch {
+      // unreadable directory or invalid pattern: nothing to add
+    }
+  }
+  return out;
 }
 
 export function evaluate(call: ToolCall, env: Env): Decision | null {

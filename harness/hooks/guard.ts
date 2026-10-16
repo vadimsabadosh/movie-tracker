@@ -4,7 +4,8 @@ import { execFileSync } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { evaluate, type Decision, type Env, type ToolCall } from './rules.ts';
+// Types only: rules.ts is imported lazily in main(), so a broken rule module cannot crash the hook.
+import type { Decision, Env, ToolCall } from './rules.ts';
 
 const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -45,7 +46,7 @@ function audit(call: ToolCall, decision: Decision, projectDir: string): void {
   }
 }
 
-function main(): void {
+async function main(): Promise<void> {
   let call: ToolCall;
   try {
     call = JSON.parse(readFileSync(0, 'utf8')) as ToolCall;
@@ -55,6 +56,7 @@ function main(): void {
   const env = defaultEnv();
   let decision: Decision | null;
   try {
+    const { evaluate } = await import('./rules.ts');
     decision = evaluate(call, env);
   } catch (error) {
     // A bug in the guard must not silently allow a dangerous call, nor brick the session: ask the human.
@@ -65,4 +67,4 @@ function main(): void {
   process.stdout.write(output(decision));
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();

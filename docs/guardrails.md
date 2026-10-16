@@ -22,7 +22,7 @@
 | `harness/git-hooks/pre-commit`, `pre-push` | Ті самі B1, B2, B3, B5 на рівні git — діють і без агента |
 | `harness/hooks/test/` | Тестові кейси (розділ 4) |
 
-Збій самого hook (виняток у коді) → `ask`: людина вирішує, небезпечна дія не проходить мовчки.
+Збій правил (виняток чи помилка завантаження `rules.ts`) → `ask`: людина вирішує. Аварійне завершення самого процесу hook → команда в `settings.json` повертає код 2, і виклик блокується (fail-closed).
 
 ## 2. Правила
 
@@ -57,7 +57,7 @@
 |----|---------|----------------------|
 | A1 | Читання проєкту | Read/Glob/Grep у межах репозиторію застосунку (не секрети, не vault) |
 | A2 | Рутинні зміни | Edit/Write у `src/`, `test/`, `docs/`, `harness/vault-mcp/{src,test}/` — крім W3–W5 і B6 |
-| A3 | Перевірки й інспекція | `npm test`, `npm run test/lint/typecheck/build/check`, `npx vitest/tsc/eslint`, `prettier --check`, `node --test`; read-only git (`status`, `diff`, `log`, `show`, `branch` без аргументів, `ls-remote`, `fetch`…); `ls`, `cat`, `grep`, `find` без `-exec/-delete`, `sed` без `-i`. Лише якщо кожна частина команди така і немає перенаправлення у файл чи `$(…)` |
+| A3 | Перевірки й інспекція | `npm test`, `npm run test/lint/typecheck/build/check`, `npx vitest/tsc/eslint`, `prettier --check`, `node --test`; read-only git (`status`, `diff`, `log`, `show`, `branch` без аргументів, `ls-remote`, `fetch`…); `ls`, `cat`, `grep`, `rg`, `find`, `sort`. Лише якщо кожна частина команди така, немає перенаправлення у файл, `$(…)`, `$VAR`, глобів чи `bash -c`/`eval` і немає аргументів, що запускають програму чи пишуть файл (`git -c`, `--output`, `--upload-pack`, `--ext-diff`, `rg --pre`, `find -exec/-delete/-fprintf`, `sort -o`). `sed`, `uniq` і `jq` не дозволяються за назвою: `sed 's/a/b/w f'`, `sed e`, `uniq in out` пишуть файли чи виконують команди, `jq -n env` друкує токени |
 | A4 | Читання знань і GitHub | `mcp__vault__get_note`, `mcp__vault__search_notes`, усі `mcp__github__*` (сервер підключено read-only, ADR-006) |
 
 ## 3. Що змінилося порівняно з ПР № 1
@@ -73,7 +73,7 @@
 
 ## 4. Тестові кейси
 
-Автоматичні: `node --test harness/hooks/test/*.test.ts` — **32 тести**. `guard.test.ts` подає виклики інструментів у `evaluate` і запускає `guard.ts` як процес зі stdin JSON, як це робить Claude Code. `git-hooks.test.ts` перевіряє git hooks на тимчасовому репозиторії з bare-remote. Нижче — по три сценарії для кожного рівня; живу перевірку в Claude Code описано в розділі 5.
+Автоматичні: `node --test harness/hooks/test/*.test.ts` — **44 тести**. `guard.test.ts` подає виклики інструментів у `evaluate` і запускає `guard.ts` як процес зі stdin JSON, як це робить Claude Code. `git-hooks.test.ts` перевіряє git hooks на тимчасовому репозиторії з bare-remote. Нижче — по три сценарії для кожного рівня; живу перевірку в Claude Code описано в розділі 5.
 
 ### Block
 
@@ -109,14 +109,28 @@
 - `git push -u origin pr4` — не force-push; `git branch --show-current` — не створення гілки; `cat .env.example` — не секрет.
 - Читання `.claude/settings.json` (на відміну від запису) дозволене.
 
+### Зловживання allow-списком (A3)
+
+Команда, дозволена за назвою, не повинна ставати виконанням коду чи записом через аргументи: `rg --pre ./x.sh`, `git -c core.pager=./x.sh log`, `git diff --output=f`, `git grep -O`, `git fetch --upload-pack=…`, `sed 's/a/b/w f'`, `uniq in out`, `find -fprintf`, `sort -o`, `npm audit fix` → **без рішення**, тобто звичайний запит дозволу (`guard.test.ts`, «allow-list cannot be abused»). Знайдено автоматичним security review після першої версії hook.
+
+### Спроби сховати команду від парсера
+
+| Спроба | Реакція |
+|--------|---------|
+| `echo '<<X'` + новий рядок `rm -rf /` — «heredoc» у лапках | **deny B7**: heredoc розпізнається лише за справжнім `<<` поза лапками |
+| `cat <<EOF` без завершального рядка + `git reset --hard` | **deny B3**: без термінатора решта аналізується як команди |
+| `bash -c "git push --force"`, `sh -c 'cat .env'`, `eval git reset --hard` | **deny B1/B5/B3**: аргумент аналізується рекурсивно; інтерпретатор ніколи не дозволяється автоматично |
+| `cat .e*`, `head .[e]nv`, `cat ../movie-tracker-v*/README.md`, `rm -rf harness/ho*` | **deny B5/B4/B6**: глоби розкриваються за файловою системою перед перевіркою |
+| `rm -rf src/$TARGET` | **deny B7**: невідома ціль видалення |
+| push після чужого push без `git fetch` | pre-push **відхиляє** (fail-closed): не можна довести, що це не force-push |
+
 ## 5. Перевірка в Claude Code
 
 Результати живих викликів агента з увімкненим hook — у `docs/guardrails-verification.md`. Їх винесено в окремий файл, бо цей файл захищений правилом B6 і агент його не змінює.
 
 ## 6. Обмеження
 
-- Розбір Bash евристичний: `$(…)`, підоболонки та скрипти (`python3 x.py`, `npm run <script>`) не аналізуються вглиб, тому для них ніколи не дається `allow`. Block-правила перевіряють і такі команди, але скрипт може зробити заборонене зсередини. Від цього страхують git hooks і deny-правила дозволів.
-- B4 розпізнає клон vault за назвою теки й шляхом. Посилання без назви (наприклад, змінна середовища зі шляхом) не розпізнається.
+- Розбір Bash евристичний. `bash -c` і `eval` аналізуються рекурсивно, глоби розкриваються. Проте вміст `$(…)`, тіло heredoc для інтерпретатора (`bash <<EOF`), скрипти (`python3 x.py`, `npm run <script>`) і значення змінних (`$VAR`) не аналізуються. Для них ніколи не дається `allow`, тож Claude Code питає людину, але block-правило всередині може не спрацювати. Від цього страхують git hooks і deny-правила дозволів.
+- B4 розпізнає клон vault за назвою теки, шляхом і розкритими глобами. Шлях, прихований у змінній середовища, не розпізнається (див. вище).
 - B5 за назвою змінної може спрацювати й на безпечну команду (`grep GITHUB_PAT docs/`). Це свідомий вибір на користь безпеки.
-- pre-push не може перевірити non-fast-forward, якщо віддаленого коміту немає локально (не було `fetch`).
 - Git hooks вмикаються в кожному клоні окремо: `git config core.hooksPath harness/git-hooks`.

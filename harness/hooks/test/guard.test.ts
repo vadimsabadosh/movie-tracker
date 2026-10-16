@@ -1,8 +1,10 @@
 // Guardrail test cases (docs/guardrails.md, section 4). Run: node --test harness/hooks/test/*.test.ts
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { describe, it } from 'node:test';
+import { after, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { evaluate, type Env, type Level } from '../rules.ts';
 
@@ -14,8 +16,8 @@ const bash = (command: string, cwd = PROJECT) => ({ tool_name: 'Bash', tool_inpu
 const tool = (tool_name: string, tool_input: Record<string, unknown>) => ({ tool_name, tool_input, cwd: PROJECT });
 
 type Call = ReturnType<typeof bash>;
-function expectDecision(call: Call, level: Level | null, rule?: string) {
-  const decision = evaluate(call, env);
+function expectDecision(call: Call, level: Level | null, rule?: string, withEnv: Env = env) {
+  const decision = evaluate(call, withEnv);
   assert.equal(decision?.level ?? null, level, `${JSON.stringify(call.tool_input)} → ${decision?.reason ?? 'no decision'}`);
   if (rule) assert.equal(decision?.rule, rule);
 }
@@ -168,6 +170,92 @@ describe('no decision: Claude Code permission settings apply', () => {
     expectDecision(bash('rm -rf node_modules'), null); // inside the project, not data
     expectDecision(bash('python3 script.py'), null);
     expectDecision(tool('Read', { file_path: '/etc/hosts' }), null); // outside project, not secret
+  });
+});
+
+describe('allow-list cannot be abused through arguments', () => {
+  it('inspection commands that run programs or write files fall back to the permission flow', () => {
+    expectDecision(bash('rg --pre ./evil.sh TODO'), null);
+    expectDecision(bash('git -c core.pager=./evil.sh log'), null);
+    expectDecision(bash('git diff --output=src/index.ts'), null);
+    expectDecision(bash('git grep -O ./evil.sh TODO'), null);
+    expectDecision(bash('git fetch --upload-pack=./evil.sh origin'), null);
+    expectDecision(bash('git diff --ext-diff'), null);
+    expectDecision(bash("sed -n 's/a/b/w out.txt' README.md"), null);
+    expectDecision(bash("sed '1e ./evil.sh' README.md"), null);
+    expectDecision(bash('uniq in.txt out.txt'), null);
+    expectDecision(bash('find . -fprintf out.txt %p'), null);
+    expectDecision(bash('sort -o out.txt in.txt'), null);
+    expectDecision(bash('tree -o out.txt'), null);
+    expectDecision(bash('npm audit fix'), null);
+    expectDecision(bash('jq -n env'), null); // prints the environment, tokens included
+  });
+
+  it('the same commands without such arguments stay allowed', () => {
+    expectDecision(bash('rg -n TODO src'), 'allow', 'A3');
+    expectDecision(bash('git -C harness/vault-mcp log --oneline -3'), 'allow', 'A3');
+    expectDecision(bash('git diff --stat'), 'allow', 'A3');
+    expectDecision(bash('find src -name "*.ts"'), 'allow', 'A3');
+    expectDecision(bash('sort -u words.txt'), 'allow', 'A3');
+    expectDecision(bash('npm audit'), 'allow', 'A3');
+  });
+});
+
+describe('parser cannot be tricked into hiding commands', () => {
+  it('a heredoc marker inside quotes does not hide the following lines', () => {
+    expectDecision(bash("echo '<<X'\nrm -rf /\nX"), 'deny', 'B7');
+    expectDecision(bash('echo "<<EOF"\ngit push --force\nEOF'), 'deny', 'B1');
+  });
+
+  it('an unterminated heredoc is analysed as commands and never allowed', () => {
+    expectDecision(bash('cat <<EOF\ngit reset --hard'), 'deny', 'B3');
+    expectDecision(bash('cat <<EOF\nhello'), null);
+  });
+
+  it('a real heredoc body is data for cat, and the command after it is analysed', () => {
+    expectDecision(bash("cat <<'EOF'\nrm -rf /\nEOF\ngit push origin main"), 'deny', 'B1');
+    expectDecision(bash("cat <<'EOF'\nrm -rf /\nEOF"), 'allow', 'A3');
+  });
+
+  it('bash -c and eval are analysed recursively and never auto-allowed', () => {
+    expectDecision(bash('bash -c "git push --force"'), 'deny', 'B1');
+    expectDecision(bash("sh -c 'cat .env'"), 'deny', 'B5');
+    expectDecision(bash('eval git reset --hard'), 'deny', 'B3');
+    expectDecision(bash('bash -c "ls"'), null);
+  });
+
+  it('commands with $ expansion are never auto-allowed', () => {
+    expectDecision(bash('cat "$HOME/notes.txt"'), null);
+    expectDecision(bash('rm -rf src/$TARGET'), 'deny', 'B7');
+  });
+});
+
+describe('globs are expanded against the filesystem', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'guard-glob-'));
+  const app = path.join(root, 'movie-tracker');
+  for (const dir of ['src', 'harness/hooks', '../movie-tracker-vault']) mkdirSync(path.join(app, dir), { recursive: true });
+  writeFileSync(path.join(app, '.env'), 'GITHUB_PAT=x\n');
+  writeFileSync(path.join(app, 'src/a.ts'), '');
+  writeFileSync(path.join(app, 'harness/hooks/rules.ts'), '');
+  writeFileSync(path.join(root, 'movie-tracker-vault/README.md'), '');
+  const fsEnv: Env = { projectDir: app, vaultDir: path.join(root, 'movie-tracker-vault'), branchOf: () => 'pr4' };
+  after(() => rmSync(root, { recursive: true, force: true }));
+
+  it('B5 sees the secret behind a glob', () => {
+    expectDecision(bash('cat .e*', app), 'deny', 'B5', fsEnv);
+    expectDecision(bash('head -1 .[e]nv', app), 'deny', 'B5', fsEnv);
+  });
+
+  it('B4 sees the vault behind a glob', () => {
+    expectDecision(bash('cat ../movie-tracker-v*/README.md', app), 'deny', 'B4', fsEnv);
+  });
+
+  it('B6 sees guardrail files behind a glob', () => {
+    expectDecision(bash('rm -rf harness/ho*', app), 'deny', 'B6', fsEnv);
+  });
+
+  it('a harmless glob is not blocked but not auto-allowed either', () => {
+    expectDecision(bash('ls src/*.ts', app), null, undefined, fsEnv);
   });
 });
 
