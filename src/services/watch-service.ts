@@ -25,8 +25,10 @@ export class WatchService {
     return entry;
   }
 
+  /** FR-4 Watch History. Default order depends on the sort: titles A→Z, everything else newest/highest first. */
   list(query: WatchListQuery) {
-    return { ...this.watches.list(query), limit: query.limit, offset: query.offset };
+    const order = query.order ?? (query.sort === 'title' ? 'asc' : 'desc');
+    return { ...this.watches.list({ ...query, order }), limit: query.limit, offset: query.offset };
   }
 
   /** FR-2: mark as watched. One entry per movie — a second mark is a conflict (vault: Error Handling). */

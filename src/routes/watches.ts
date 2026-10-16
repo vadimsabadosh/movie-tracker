@@ -1,4 +1,5 @@
-// Watch marks (FR-2, FR-3): one entry per movie, so it lives under /movies/:id/watch; /watches lists them.
+// Watch marks (FR-2, FR-3): one entry per movie, so it lives under /movies/:id/watch.
+// GET /watches is the Watch History (FR-4): filters, sorting and pagination, each item with its movie.
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
