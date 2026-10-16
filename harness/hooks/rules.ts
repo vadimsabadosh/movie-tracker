@@ -43,9 +43,20 @@ interface Context {
   /** Absolute paths a file tool touches. */
   paths: string[];
   writes: boolean;
-  /** Bash only: simple commands with the directory each runs in and their glob words expanded to absolute paths. */
-  commands: { seg: Segment; cwd: string; expanded: string[] }[];
+  /** Bash only: simple commands (wrappers like `env`, `nice` and `VAR=x` removed) with the directory each runs in. */
+  commands: Command[];
   opaque: boolean;
+  /** Bash only: a shell or interpreter runs code the guard cannot see (script file, stdin, `-e`). */
+  hiddenCode: string | null;
+}
+
+interface Command {
+  seg: Segment;
+  cwd: string;
+  /** False after `cd $DIR`, `cd -` or `cd <glob>`: relative paths cannot be resolved. */
+  cwdKnown: boolean;
+  /** Glob words expanded to absolute paths (computed on first use). */
+  readonly expanded: string[];
 }
 
 const FILE_READ_TOOLS = new Set(['Read', 'Glob', 'Grep', 'LS']);
@@ -216,7 +227,7 @@ export const RULES: Rule[] = [
         const guard = ctx.paths.find((p) => inProject(ctx, p) && isGuardFile(rel(ctx, p)));
         if (guard) return `${rel(ctx, guard)} is a guardrail; only the student changes it`;
       }
-      for (const { seg, cwd, expanded } of ctx.commands) {
+      for (const { seg, cwd, cwdKnown, expanded } of ctx.commands) {
         const g = git(seg);
         const noVerify = g !== null && (g.args.includes('--no-verify') || (g.sub === 'commit' && hasFlag(subjectWords(seg).slice(2), '-n')));
         if (noVerify && ['commit', 'push', 'merge'].includes(g.sub)) return '--no-verify skips the git guardrail hooks';
@@ -225,6 +236,8 @@ export const RULES: Rule[] = [
         const sedInPlace = ['sed', 'perl'].includes(seg.words[0] ?? '') && seg.words.some((w) => /^-[a-zA-Z]*i/.test(w));
         const gitRestore = g !== null && (g.sub === 'restore' || g.sub === 'checkout' || g.sub === 'rm' || g.sub === 'mv');
         const targets = [...seg.redirects, ...(writer || sedInPlace || gitRestore ? [...seg.words.slice(1), ...expanded] : [])];
+        const relative = targets.filter((w) => !w.startsWith('-') && !path.isAbsolute(expandHome(w)));
+        if (!cwdKnown && relative.length) return `cannot verify ${relative[0]} after cd to an unknown directory`;
         const hit = targets.find((w) => {
           const abs = path.resolve(cwd, w);
           return inProject(ctx, abs) && holdsGuardFile(rel(ctx, abs));
@@ -239,9 +252,10 @@ export const RULES: Rule[] = [
     level: 'deny',
     title: 'Delete data or files outside the project',
     check: (ctx) => {
-      for (const { seg, cwd, expanded } of ctx.commands) {
+      for (const { seg, cwd, cwdKnown, expanded } of ctx.commands) {
         const cmd = seg.words[0];
         if (cmd !== 'rm' && cmd !== 'unlink' && cmd !== 'shred') continue;
+        if (!cwdKnown) return 'rm after cd to an unknown directory: target cannot be verified';
         for (const w of [...seg.words.slice(1).filter((a) => !a.startsWith('-')), ...expanded]) {
           const abs = path.resolve(cwd, expandHome(w));
           if (/^~/.test(w) || w.includes('$') || !inProject(ctx, abs) || abs === ctx.env.projectDir) return `rm outside the project: ${w}`;
@@ -339,6 +353,13 @@ export const RULES: Rule[] = [
     },
   },
 
+  {
+    id: 'W8',
+    level: 'ask',
+    title: 'Shell or interpreter running code the guard cannot see',
+    check: (ctx) => ctx.hiddenCode,
+  },
+
   // ----- allow -----
   {
     id: 'A1',
@@ -374,18 +395,36 @@ export const RULES: Rule[] = [
 ];
 
 const READ_ONLY_GIT = new Set(['status', 'diff', 'log', 'show', 'ls-files', 'ls-remote', 'rev-parse', 'blame', 'fetch', 'remote', 'describe', 'shortlog', 'grep', 'merge-base', 'rev-list', 'cat-file']);
-// Allowed by name only when no argument can make them run programs or write files
-// (sed, uniq and jq are left out: `sed 's/a/b/w file'`, `sed e`, `uniq in out` write or execute; `jq -n env` prints tokens).
-const INSPECT = new Set(['ls', 'cat', 'head', 'tail', 'wc', 'grep', 'rg', 'find', 'pwd', 'echo', 'which', 'tree', 'file', 'stat', 'diff', 'sort', 'cd', 'true']);
-// Arguments that turn an inspection command into code execution or a file write.
-const UNSAFE_ARG: Record<string, RegExp> = {
-  git: /^(--output|-O|--open-files-in-pager|--upload-pack|--receive-pack|--exec|--ext-diff|--textconv|--run|--config-env)/,
-  rg: /^(--pre|--pre-glob)/,
-  find: /^-(delete|exec|execdir|ok|okdir|fprint|fprint0|fprintf|fls)$/,
-  sort: /^(-o|--output|-[a-zA-Z]*o)/,
-  tree: /^(-o|-R)/,
+
+// A3 auto-allows a command only when EVERY flag is on its allowlist: an unknown flag means
+// "not provably read-only" and falls back to the normal permission flow. (A denylist of
+// dangerous flags kept missing ones: `sort --compress-program`, `git fetch -u`, `rg --pre`.)
+// Words not starting with "-" are operands (paths, patterns, flag values) and are checked by B4–B7.
+const SAFE_FLAGS: Record<string, RegExp> = {
+  git: new RegExp(
+    '^(-\\d+|-[nvsqpbarlwC]+|-vv|-U\\d+|--|' +
+      '--(oneline|stat|shortstat|numstat|short|long|branch|name-only|name-status|graph|all|decorate|cached|staged|follow|reverse|' +
+      'first-parent|no-merges|merges|relative|patch|no-patch|no-color|word-diff|ignore-all-space|show-current|show-toplevel|' +
+      'abbrev-ref|verify|heads|tags|refs|list|is-ancestor|count|left-right|cherry-pick|exit-code|check|prune|quiet|porcelain)|' +
+      '--(format|pretty|date|since|until|after|before|author|committer|grep|max-count|skip|diff-filter|abbrev|color|unified|porcelain)=[^\\s]*)$',
+  ),
+  ls: /^(-[a-zA-Z1@]+|--color=\w+|--all|--almost-all)$/,
+  cat: /^-[nbsvAET]+$/,
+  head: /^(-[nc]|-\d+)$/,
+  tail: /^(-[nc]|-\d+|-[fF])$/,
+  wc: /^-[lwcm]+$/,
+  // no -r/-R/--recursive: a recursive grep reads .env and would print the token
+  grep: /^(-[EFGPinvwxclLoqsHhAB0-9]+|-[eCAB]|--(color|include|exclude)=\S*|--(ignore-case|line-number|count|files-with-matches|fixed-strings|word-regexp|invert-match))$/,
+  rg: /^(-[niSslcwFvoHNx]+|-[egtTCABm]|--(files|line-number|ignore-case|smart-case|count|files-with-matches|fixed-strings|word-regexp|invert-match|heading|no-heading|type|glob|max-count|context)|--(type|glob|max-count|context|color)=\S*)$/,
+  find: /^(-(name|iname|type|path|ipath|wholename|regex|maxdepth|mindepth|newer|size|empty|print|print0|not|o|or|a|and|mtime|mmin|prune)|!)$/,
+  sort: /^(-[urnfhVbs]+|-[kt])$/,
+  tree: /^-[adfL]$|^-I$/,
+  diff: /^-[urqNwbBi]+$/,
+  stat: /^-[fLs]$/,
 };
-const hasUnsafeArg = (cmd: string, words: string[]) => (UNSAFE_ARG[cmd] ? words.some((w) => UNSAFE_ARG[cmd]!.test(w)) : false);
+// Commands without flags that matter (or with no flags allowed).
+const PLAIN = new Set(['pwd', 'echo', 'which', 'cd', 'true']);
+
 /** Only `-C <dir>` may come between `git` and its subcommand; `-c key=value` can set core.pager and similar. */
 function gitGlobalsSafe(words: string[]): boolean {
   for (let i = 1; i < words.length; i++) {
@@ -395,6 +434,11 @@ function gitGlobalsSafe(words: string[]): boolean {
   }
   return true;
 }
+
+const flagsAllowed = (cmd: string, args: string[]) => {
+  const allow = SAFE_FLAGS[cmd];
+  return args.every((w) => !w.startsWith('-') || w === '-' || (allow !== undefined && allow.test(w)));
+};
 
 function isGhRead(seg: Segment): boolean {
   return /^(pr|issue|run|repo|release)$/.test(seg.words[1] ?? '') && /^(view|list|diff|checks|status)$/.test(seg.words[2] ?? '');
@@ -406,21 +450,54 @@ function isSafeCommand(seg: Segment): boolean {
   const [cmd, a1, a2] = seg.words;
   const g = git(seg);
   if (g) {
-    if (!gitGlobalsSafe(seg.words) || hasUnsafeArg('git', g.args)) return false;
+    if (!gitGlobalsSafe(seg.words) || !flagsAllowed('git', g.args)) return false;
     if (g.sub === 'branch') return g.args.every((a) => a.startsWith('-') && !/^-[a-zA-Z]*[dDmMcC]/.test(a) && a !== '--delete');
     if (g.sub === 'remote') return g.args.length === 0 || g.args[0] === '-v' || g.args[0] === 'show';
     return READ_ONLY_GIT.has(g.sub);
   }
+  // Tests, linters and builds run project code by design; these are the project's own scripts.
   if (cmd === 'npm' && a1 === 'test') return true;
   if (cmd === 'npm' && a1 === 'run' && /^(test|lint|typecheck|build|format:check|check)$/.test(a2 ?? '')) return true;
   if (cmd === 'npm' && /^(ls|outdated|view|audit)$/.test(a1 ?? '')) return !seg.words.includes('fix');
   if (cmd === 'npx' && /^(vitest|tsc|eslint)$/.test(a1 ?? '') && !seg.words.includes('--fix')) return true;
   if (cmd === 'npx' && a1 === 'prettier' && seg.words.includes('--check')) return true;
   if (cmd === 'node') return a1 === '--test' || a1 === '--version' || a1 === '-v';
-  return INSPECT.has(cmd ?? '') && !hasUnsafeArg(cmd ?? '', seg.words.slice(1));
+  if (PLAIN.has(cmd ?? '')) return true;
+  return SAFE_FLAGS[cmd ?? ''] !== undefined && flagsAllowed(cmd ?? '', seg.words.slice(1));
 }
 
 // ---------- evaluation ----------
+
+const SHELL = /^(ba|z|da|k|fi)?sh$/;
+const INTERPRETER = /^(node|python\d*(\.\d+)?|perl|ruby|php|deno|bun)$/;
+const INLINE_CODE = /^(-e|-E|-c|-p|--eval|--print|-r)$/;
+/** Prefixes that run the rest of the words as a command. */
+const WRAPPER = /^(env|command|builtin|exec|nohup|nice|time|sudo|doas|timeout|stdbuf|xargs)$/;
+
+/**
+ * `env A=1 nice -n 5 /usr/bin/git push` → `git push`: drops variable assignments and wrapper
+ * commands (with their options) and reduces a path to its basename, so rules see the real command.
+ */
+function normalize(seg: Segment): Segment {
+  const words = [...seg.words];
+  for (let guard = 0; guard < 10 && words.length; guard++) {
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0] ?? '')) {
+      words.shift();
+      continue;
+    }
+    if (words[0]?.includes('/')) words[0] = path.basename(words[0]);
+    if (!WRAPPER.test(words[0] ?? '')) break;
+    const wrapper = words.shift();
+    // options of the wrapper and, for timeout/nice, their numeric argument
+    while (words.length && (words[0]?.startsWith('-') || /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0] ?? ''))) {
+      const opt = words.shift() ?? '';
+      if (/^-(n|u|g|s|k|I|L|P|o|i|e)$/.test(opt) && words.length) words.shift();
+    }
+    if (wrapper === 'timeout' && /^\d/.test(words[0] ?? '')) words.shift();
+  }
+  if (words[0]?.includes('/')) words[0] = path.basename(words[0]);
+  return { ...seg, words };
+}
 
 function buildContext(call: ToolCall, env: Env): Context {
   const input = call.tool_input ?? {};
@@ -438,37 +515,64 @@ function buildContext(call: ToolCall, env: Env): Context {
       if (dir) paths.push(path.resolve(paths[0] ?? cwd, expandHome(dir)));
     }
   }
-  const commands: Context['commands'] = [];
+  const commands: Command[] = [];
   let opaque = false;
+  let hiddenCode: string | null = null;
   const command = str('command');
   if (call.tool_name === 'Bash' && command) {
     let dir = cwd;
-    // `bash -c "..."` and `eval ...` run their argument as a command line: analyse it too (bounded depth).
+    let cwdKnown = true;
     const walk = (text: string, depth: number) => {
       const parsed = parseCommand(text);
       opaque ||= parsed.opaque;
-      for (const seg of parsed.segments) {
-        commands.push({ seg, cwd: dir, expanded: expandGlobs(seg.globs, dir) });
-        const [cmd, flag, script] = seg.words;
-        const nested = /^(ba|z|da|k)?sh$/.test(cmd ?? '') && flag === '-c' ? script : cmd === 'eval' ? seg.words.slice(1).join(' ') : undefined;
-        if (nested !== undefined) {
-          opaque = true; // never auto-allow an interpreter
-          if (depth < 3) walk(nested, depth + 1);
+      for (const raw of parsed.segments) {
+        const seg = normalize(raw);
+        if (seg.words.length !== raw.words.length) opaque = true; // wrappers are never auto-allowed
+        let memo: string[] | undefined;
+        const at = dir;
+        commands.push({ seg, cwd: at, cwdKnown, get expanded() { return (memo ??= expandGlobs(seg.globs, at)); } });
+        const [cmd] = seg.words;
+        if (SHELL.test(cmd ?? '')) {
+          // `bash -c "..."`, `sh -xc '...'`: analyse the script (bounded depth); otherwise the code is hidden.
+          opaque = true;
+          const flags = seg.words.slice(1).filter((w, i, all) => w.startsWith('-') && all.slice(0, i).every((p) => p.startsWith('-')));
+          const cIndex = seg.words.findIndex((w, i) => i > 0 && i <= flags.length && /^-[a-zA-Z]*c[a-zA-Z]*$/.test(w));
+          const script = cIndex === -1 ? undefined : seg.words.slice(cIndex + 1).find((w) => !w.startsWith('-'));
+          if (script !== undefined && depth < 3) walk(script, depth + 1);
+          else hiddenCode ??= `${cmd} runs a script the guard cannot inspect`;
+        } else if (cmd === 'eval') {
+          opaque = true;
+          if (depth < 3) walk(seg.words.slice(1).join(' '), depth + 1);
+        } else if (INTERPRETER.test(cmd ?? '') && seg.words.slice(1).some((w) => INLINE_CODE.test(w))) {
+          hiddenCode ??= `${cmd} runs inline code the guard cannot inspect`;
         }
-        if (seg.words[0] === 'cd') dir = path.resolve(dir, expandHome(seg.words[1] ?? process.env.HOME ?? '/'));
+        if (cmd === 'cd') {
+          const target = seg.words[1];
+          if (target === '-' || seg.dynamic || seg.globs.length) {
+            cwdKnown = false;
+            opaque = true;
+          } else {
+            dir = path.resolve(dir, expandHome(target ?? process.env.HOME ?? '/'));
+          }
+        }
       }
     };
     walk(command, 0);
   }
-  return { tool: call.tool_name, input, env, paths, writes: FILE_WRITE_TOOLS.has(call.tool_name), commands, opaque };
+  return { tool: call.tool_name, input, env, paths, writes: FILE_WRITE_TOOLS.has(call.tool_name), commands, opaque, hiddenCode };
 }
 
 /** Expands glob words the way the shell would, so `cat .e*` is checked as `cat .env`. */
 function expandGlobs(patterns: string[], cwd: string): string[] {
   const out: string[] = [];
   for (const pattern of patterns) {
+    // `**` can walk a whole disk and time the hook out; such words already prevent `allow`.
+    if (pattern.includes('**')) continue;
     try {
-      for (const match of globSync(expandHome(pattern), { cwd })) out.push(path.resolve(cwd, match));
+      for (const match of globSync(expandHome(pattern), { cwd })) {
+        out.push(path.resolve(cwd, match));
+        if (out.length >= 1000) return out;
+      }
     } catch {
       // unreadable directory or invalid pattern: nothing to add
     }

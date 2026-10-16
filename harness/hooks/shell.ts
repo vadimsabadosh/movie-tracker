@@ -133,7 +133,8 @@ export function parseCommand(text: string): ParsedCommand {
         i += 1;
         if (text[i + 1] === '-') i++;
         while (text[i + 1] === ' ') i++;
-        const delim = /^(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/.exec(text.slice(i + 1));
+        // The delimiter must be a whole word: `<<EOF"x` or `<<END-1` would be read differently by the shell.
+        const delim = /^(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1(?=$|[\s;&|<>)])/.exec(text.slice(i + 1));
         if (delim) {
           heredocs.push(delim[2] ?? '');
           i += delim[0].length;
