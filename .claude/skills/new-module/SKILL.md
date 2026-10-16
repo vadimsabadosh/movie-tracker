@@ -14,6 +14,7 @@ Creates one entity module the same way every time:
 | Service | `src/services/<entity>-service.ts` |
 | Routes | `src/routes/<entities>.ts` |
 | Database | migration in `src/db/migrations.ts` |
+| Wiring | `src/container.ts` + one line in `src/routes/index.ts` |
 | Tests | `test/<entities>.test.ts` |
 
 The architecture comes from ADR-001: routes → services → repositories → database.
@@ -55,11 +56,11 @@ Templates are in `templates/` next to this file. `__Entity__`, `__entity__`, `__
 Conventions, all checked in step 5:
 
 - **Schemas (ADR-004).** Every input and output has a Zod schema; TypeScript types come from `z.infer`, never written by hand. Ranges and required fields mirror the concept note, for example Rating is an integer 1–10. Use `IdParams`, `PaginationQuery`, `page()` and `ErrorResponse` from `src/schemas/common.ts`.
-- **Repository.** The only place with SQL. Use prepared statements with parameters only (NFR-3), and never interpolate values. Filtering, sorting and pagination happen in SQL (NFR-1). Map snake_case columns to camelCase fields here.
+- **Repository.** The only place with SQL. Use prepared statements with parameters only (NFR-3), and never interpolate values or build SQL from template strings. Use named parameters (`@q`) when one value appears twice; better-sqlite3 rejects numbered `?1`. Compare text through a lowercased `*_key` column (`textKey()` in `movie-repository.ts`), because SQLite `NOCASE`/`LIKE` fold ASCII only. Filtering, sorting and pagination happen in SQL (NFR-1). Map snake_case columns to camelCase fields here.
 - **Service.** Business rules and domain errors (`NotFoundError`, `ConflictError` from `src/errors/errors.ts`). No Fastify imports and no SQL.
 - **Routes.** Declare `schema` on every route (params, querystring, body, every response status) so OpenAPI stays complete (NFR-6). Handlers only call the service.
 - **Migration.** Append one SQL string to `MIGRATIONS`; never edit an existing entry. Add `NOT NULL`, `CHECK` and `UNIQUE` constraints for the domain rules, `FOREIGN KEY ... ON DELETE` for references, and indexes for the filter columns.
-- **Register.** Add one line to `src/routes/index.ts`.
+- **Register.** Add the service to `Services` and `createServices` in `src/container.ts`, the composition root and the only place that wires a repository into a service. Then add one line to `src/routes/index.ts` that passes `services.<entities>` to the routes. Routes never construct repositories, because that would break the layer check in step 5.
 - **Tests.** Write black-box tests through `app.inject` on `testApp()`. Cover the happy path, validation 400, 404, 409 where uniqueness applies, and the domain edge cases from step 1: boundary values, empty list, pagination.
 
 ## 4. Verify

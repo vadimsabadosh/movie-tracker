@@ -8,7 +8,7 @@ beforeEach(async () => {
   app = await testApp();
 });
 
-const create = (body: unknown) => app.inject({ method: 'POST', url: '/__entities__', payload: body });
+const create = (body: object) => app.inject({ method: 'POST', url: '/__entities__', payload: body });
 
 describe('/__entities__', () => {
   it('creates, reads, updates and deletes', async () => {

@@ -3,6 +3,7 @@ import swagger from '@fastify/swagger';
 import type Database from 'better-sqlite3';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { jsonSchemaTransform, serializerCompiler, validatorCompiler, type ZodTypeProvider } from 'fastify-type-provider-zod';
+import { createServices } from './container.ts';
 import { errorHandler } from './errors/errors.ts';
 import { registerRoutes } from './routes/index.ts';
 
@@ -25,6 +26,6 @@ export async function buildApp({ db, logger = false }: AppOptions): Promise<Fast
     transform: jsonSchemaTransform,
   });
   app.get('/openapi.json', { schema: { hide: true } }, () => app.swagger());
-  await registerRoutes(app, db);
+  await registerRoutes(app, createServices(db));
   return app;
 }

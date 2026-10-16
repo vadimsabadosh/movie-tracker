@@ -22,7 +22,7 @@ export class __Entity__Repository {
   }
 
   list(query: __Entity__ListQuery): { items: __Entity__[]; total: number } {
-    // Filtering and pagination in SQL (NFR-1); add WHERE clauses with ? parameters for each filter.
+    // Filtering and pagination in SQL (NFR-1); add WHERE clauses with @named parameters for each filter.
     const rows = this.db
       .prepare('SELECT id, name FROM __table__ ORDER BY id LIMIT ? OFFSET ?')
       .all(query.limit, query.offset) as __Entity__Row[];
