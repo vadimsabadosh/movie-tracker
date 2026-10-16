@@ -25,7 +25,9 @@ Each role starts with an empty context. Whatever it is not given, it does not kn
 | `04-…`, `05-…` | rework round 2 | same formats |
 | `README.md` | orchestrator → humans | transcript summary: who decided what, what the reviewer caught, where context was lost |
 
-**Rule: pass documents whole.** Each subagent prompt contains the full text of every earlier handoff it needs, not a summary written by the orchestrator. Summarizing is exactly where context gets lost.
+**Rule: pass documents whole, never a summary.** Each subagent gets every earlier handoff it needs in full. Prefer passing the paths of the verbatim saved files, with the instruction "read all of them fully before starting". Retyping long documents into the prompt adds copying errors and saves nothing. What the orchestrator must never do is write its own summary of a handoff, because summarizing is exactly where context gets lost.
+
+**Custom subagents load at session start.** After adding or changing a file in `.claude/agents/`, restart the session (`claude --continue`) before orchestrating.
 
 ## Procedure
 
