@@ -1,0 +1,46 @@
+// __Entity__ persistence: the only module that runs SQL for __table__ (ADR-001, NFR-3: parameters only).
+import type Database from 'better-sqlite3';
+import type { __Entity__, __Entity__Input, __Entity__ListQuery } from '../schemas/__entity__.ts';
+
+interface __Entity__Row {
+  id: number;
+  name: string;
+}
+
+const toEntity = (row: __Entity__Row): __Entity__ => ({ id: row.id, name: row.name });
+
+export class __Entity__Repository {
+  private readonly db: Database.Database;
+
+  constructor(db: Database.Database) {
+    this.db = db;
+  }
+
+  findById(id: number): __Entity__ | undefined {
+    const row = this.db.prepare('SELECT id, name FROM __table__ WHERE id = ?').get(id) as __Entity__Row | undefined;
+    return row && toEntity(row);
+  }
+
+  list(query: __Entity__ListQuery): { items: __Entity__[]; total: number } {
+    // Filtering and pagination in SQL (NFR-1); add WHERE clauses with ? parameters for each filter.
+    const rows = this.db
+      .prepare('SELECT id, name FROM __table__ ORDER BY id LIMIT ? OFFSET ?')
+      .all(query.limit, query.offset) as __Entity__Row[];
+    const { total } = this.db.prepare('SELECT COUNT(*) AS total FROM __table__').get() as { total: number };
+    return { items: rows.map(toEntity), total };
+  }
+
+  create(input: __Entity__Input): __Entity__ {
+    const { lastInsertRowid } = this.db.prepare('INSERT INTO __table__ (name) VALUES (?)').run(input.name);
+    return this.findById(Number(lastInsertRowid))!;
+  }
+
+  update(id: number, input: __Entity__Input): __Entity__ | undefined {
+    const { changes } = this.db.prepare('UPDATE __table__ SET name = ? WHERE id = ?').run(input.name, id);
+    return changes ? this.findById(id) : undefined;
+  }
+
+  delete(id: number): boolean {
+    return this.db.prepare('DELETE FROM __table__ WHERE id = ?').run(id).changes > 0;
+  }
+}

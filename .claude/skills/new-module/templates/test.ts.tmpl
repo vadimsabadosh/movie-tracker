@@ -1,0 +1,39 @@
+// /__entities__ black-box tests through the HTTP layer on an in-memory database.
+import type { FastifyInstance } from 'fastify';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { testApp } from './helpers.ts';
+
+let app: FastifyInstance;
+beforeEach(async () => {
+  app = await testApp();
+});
+
+const create = (body: unknown) => app.inject({ method: 'POST', url: '/__entities__', payload: body });
+
+describe('/__entities__', () => {
+  it('creates, reads, updates and deletes', async () => {
+    const created = await create({ name: 'A' });
+    expect(created.statusCode).toBe(201);
+    const { id } = created.json();
+
+    expect((await app.inject(`/__entities__/${id}`)).json()).toMatchObject({ id, name: 'A' });
+    expect((await app.inject({ method: 'PUT', url: `/__entities__/${id}`, payload: { name: 'B' } })).json()).toMatchObject({ name: 'B' });
+    expect((await app.inject({ method: 'DELETE', url: `/__entities__/${id}` })).statusCode).toBe(204);
+    expect((await app.inject(`/__entities__/${id}`)).statusCode).toBe(404);
+  });
+
+  it('rejects invalid input with 400 in the common error format', async () => {
+    const res = await create({ name: '' });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe('VALIDATION_ERROR');
+  });
+
+  it('paginates', async () => {
+    for (const name of ['A', 'B', 'C']) await create({ name });
+    const page = (await app.inject('/__entities__?limit=2&offset=1')).json();
+    expect(page).toMatchObject({ total: 3, limit: 2, offset: 1 });
+    expect(page.items).toHaveLength(2);
+  });
+
+  // + domain edge cases from the vault concept note (ranges, uniqueness → 409, empty list)
+});

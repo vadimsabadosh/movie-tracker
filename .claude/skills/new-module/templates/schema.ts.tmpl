@@ -1,0 +1,21 @@
+// __Entity__ schemas (ADR-004: one Zod schema → validation, TS types and OpenAPI).
+// Fields and ranges: vault concept "__Entity__".
+import { z } from 'zod';
+import { page, PaginationQuery } from './common.ts';
+
+export const __Entity__Input = z.object({
+  name: z.string().trim().min(1).max(200),
+});
+export type __Entity__Input = z.infer<typeof __Entity__Input>;
+
+export const __Entity__ = __Entity__Input.extend({
+  id: z.number().int().positive(),
+});
+export type __Entity__ = z.infer<typeof __Entity__>;
+
+export const __Entity__ListQuery = PaginationQuery.extend({
+  // filters from the requirements, e.g. q: z.string().trim().min(1).optional()
+});
+export type __Entity__ListQuery = z.infer<typeof __Entity__ListQuery>;
+
+export const __Entity__Page = page(__Entity__);
