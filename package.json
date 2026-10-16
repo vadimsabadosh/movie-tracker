@@ -1,0 +1,28 @@
+{
+  "name": "movie-tracker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "REST API for a personal movie watch history with preference-based recommendations",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node src/server.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fastify/swagger": "9.9.2",
+    "better-sqlite3": "13.0.3",
+    "fastify": "5.12.7",
+    "fastify-type-provider-zod": "7.0.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "9.6.0",
+    "@types/node": "26.6.5",
+    "typescript": "7.0.2",
+    "vitest": "5.0.5"
+  }
+}

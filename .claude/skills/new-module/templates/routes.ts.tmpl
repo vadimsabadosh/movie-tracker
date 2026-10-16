@@ -1,0 +1,41 @@
+// /__entities__ endpoints: validate (schema), call the service, shape the response. No business logic.
+import type { FastifyInstance } from 'fastify';
+import type { ZodTypeProvider } from 'fastify-type-provider-zod';
+import { z } from 'zod';
+import { ErrorResponse, IdParams } from '../schemas/common.ts';
+import { __Entity__, __Entity__Input, __Entity__ListQuery, __Entity__Page } from '../schemas/__entity__.ts';
+import type { __Entity__Service } from '../services/__entity__-service.ts';
+
+export async function __entity__Routes(app: FastifyInstance, service: __Entity__Service): Promise<void> {
+  const r = app.withTypeProvider<ZodTypeProvider>();
+  const tags = ['__entities__'];
+
+  r.get('/__entities__', { schema: { tags, querystring: __Entity__ListQuery, response: { 200: __Entity__Page } } }, (req) =>
+    service.list(req.query),
+  );
+
+  r.get('/__entities__/:id', { schema: { tags, params: IdParams, response: { 200: __Entity__, 404: ErrorResponse } } }, (req) =>
+    service.get(req.params.id),
+  );
+
+  r.post(
+    '/__entities__',
+    { schema: { tags, body: __Entity__Input, response: { 201: __Entity__, 400: ErrorResponse, 409: ErrorResponse } } },
+    async (req, reply) => reply.status(201).send(service.create(req.body)),
+  );
+
+  r.put(
+    '/__entities__/:id',
+    { schema: { tags, params: IdParams, body: __Entity__Input, response: { 200: __Entity__, 400: ErrorResponse, 404: ErrorResponse } } },
+    (req) => service.update(req.params.id, req.body),
+  );
+
+  r.delete(
+    '/__entities__/:id',
+    { schema: { tags, params: IdParams, response: { 204: z.null(), 404: ErrorResponse } } },
+    async (req, reply) => {
+      service.delete(req.params.id);
+      return reply.status(204).send(null);
+    },
+  );
+}

@@ -1,0 +1,37 @@
+// __Entity__ business rules (ADR-001): no Fastify, no SQL — data only through __Entity__Repository.
+import { NotFoundError } from '../errors/errors.ts';
+import type { __Entity__Repository } from '../repositories/__entity__-repository.ts';
+import type { __Entity__, __Entity__Input, __Entity__ListQuery } from '../schemas/__entity__.ts';
+
+export class __Entity__Service {
+  private readonly repo: __Entity__Repository;
+
+  constructor(repo: __Entity__Repository) {
+    this.repo = repo;
+  }
+
+  get(id: number): __Entity__ {
+    const found = this.repo.findById(id);
+    if (!found) throw new NotFoundError('__Entity__', id);
+    return found;
+  }
+
+  list(query: __Entity__ListQuery) {
+    return { ...this.repo.list(query), limit: query.limit, offset: query.offset };
+  }
+
+  create(input: __Entity__Input): __Entity__ {
+    // domain rules from the vault concept note go here (uniqueness → ConflictError, etc.)
+    return this.repo.create(input);
+  }
+
+  update(id: number, input: __Entity__Input): __Entity__ {
+    const updated = this.repo.update(id, input);
+    if (!updated) throw new NotFoundError('__Entity__', id);
+    return updated;
+  }
+
+  delete(id: number): void {
+    if (!this.repo.delete(id)) throw new NotFoundError('__Entity__', id);
+  }
+}
