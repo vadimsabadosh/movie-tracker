@@ -10,9 +10,11 @@ import { registerRoutes } from './routes/index.ts';
 export interface AppOptions {
   db: Database.Database;
   logger?: boolean;
+  /** Clock for date rules (tests pin it); defaults to the local date. */
+  today?: () => string;
 }
 
-export async function buildApp({ db, logger = false }: AppOptions): Promise<FastifyInstance> {
+export async function buildApp({ db, logger = false, today }: AppOptions): Promise<FastifyInstance> {
   const app = Fastify({ logger }).withTypeProvider<ZodTypeProvider>();
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
@@ -26,6 +28,6 @@ export async function buildApp({ db, logger = false }: AppOptions): Promise<Fast
     transform: jsonSchemaTransform,
   });
   app.get('/openapi.json', { schema: { hide: true } }, () => app.swagger());
-  await registerRoutes(app, createServices(db));
+  await registerRoutes(app, createServices(db, today));
   return app;
 }

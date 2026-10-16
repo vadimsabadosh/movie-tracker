@@ -32,7 +32,7 @@ export async function movieRoutes(app: FastifyInstance, service: MovieService): 
     (req) => service.update(req.params.id, req.body),
   );
 
-  r.delete('/movies/:id', { schema: { tags, params: IdParams, response: { 204: z.null(), 404: ErrorResponse } } }, async (req, reply) => {
+  r.delete('/movies/:id', { schema: { tags, params: IdParams, response: { 204: z.null(), 404: ErrorResponse, 409: ErrorResponse } } }, async (req, reply) => {
     service.delete(req.params.id);
     return reply.status(204).send(null);
   });

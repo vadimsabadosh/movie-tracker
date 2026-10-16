@@ -1,13 +1,16 @@
 // Movie catalog rules (FR-1, FR-5). No Fastify, no SQL — data only through MovieRepository.
 import { ConflictError, NotFoundError } from '../errors/errors.ts';
 import type { MovieRepository } from '../repositories/movie-repository.ts';
+import type { WatchRepository } from '../repositories/watch-repository.ts';
 import type { Movie, MovieInput, MovieListQuery } from '../schemas/movie.ts';
 
 export class MovieService {
   private readonly repo: MovieRepository;
+  private readonly watches: WatchRepository;
 
-  constructor(repo: MovieRepository) {
+  constructor(repo: MovieRepository, watches: WatchRepository) {
     this.repo = repo;
+    this.watches = watches;
   }
 
   get(id: number): Movie {
@@ -31,8 +34,11 @@ export class MovieService {
     return this.repo.update(id, input)!;
   }
 
+  /** A watched movie keeps its history: cancel the watch mark first (DB backstop: ON DELETE RESTRICT). */
   delete(id: number): void {
-    if (!this.repo.delete(id)) throw new NotFoundError('Movie', id);
+    this.get(id);
+    if (this.watches.findByMovie(id)) throw new ConflictError(`Movie ${id} has a watch entry; cancel it before deleting the movie`);
+    this.repo.delete(id);
   }
 
   /** (title, year) is unique, title compared case-insensitively. */

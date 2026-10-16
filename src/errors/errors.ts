@@ -27,6 +27,13 @@ export class ConflictError extends AppError {
   }
 }
 
+/** A rule the schema cannot check alone (e.g. depends on today's date); same format as schema errors. */
+export class DomainValidationError extends AppError {
+  constructor(path: string, message: string) {
+    super(400, 'VALIDATION_ERROR', 'Request does not match the schema', [{ path, message }]);
+  }
+}
+
 export interface ErrorBody {
   error: { code: string; message: string; details?: unknown };
 }

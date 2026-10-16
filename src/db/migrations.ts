@@ -24,4 +24,14 @@ export const MIGRATIONS: readonly string[] = [
   );
   CREATE INDEX movie_genres_genre ON movie_genres (genre_id);
   `,
+  // 2. Watch entries (FR-2, FR-3): one per movie; RESTRICT keeps history from being deleted with its movie.
+  `
+  CREATE TABLE watches (
+    movie_id   INTEGER PRIMARY KEY REFERENCES movies (id) ON DELETE RESTRICT,
+    watched_at TEXT    NOT NULL CHECK (date(watched_at) IS watched_at AND watched_at >= '1888-01-01'),
+    rating     INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 10),
+    note       TEXT
+  );
+  CREATE INDEX watches_watched_at ON watches (watched_at);
+  `,
 ];
