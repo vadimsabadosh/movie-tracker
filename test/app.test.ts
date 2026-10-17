@@ -30,6 +30,15 @@ describe('app', () => {
     expect(ok.content['application/json'].schema.properties).toHaveProperty('directors');
   });
 
+  it('documents GET /recommendations with limit and a 200 response schema (NFR-6)', async () => {
+    const app = await testApp();
+    const openapi = (await app.inject('/openapi.json')).json();
+    const get = openapi.paths['/recommendations'].get;
+    expect((get.parameters as { name: string; in: string }[]).filter((p) => p.in === 'query').map((p) => p.name)).toEqual(['limit']);
+    const items = get.responses['200'].content['application/json'].schema.properties.items;
+    expect(Object.keys(items.items.properties).sort()).toEqual(['explanation', 'movie', 'reasons', 'score']);
+  });
+
   it('returns 404 in the common error format for unknown routes', async () => {
     const app = await testApp();
     const res = await app.inject('/nope');

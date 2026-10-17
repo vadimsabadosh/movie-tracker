@@ -18,8 +18,11 @@ const DAY_MS = 86_400_000;
 const FIRST_DAY = Date.UTC(2000, 0, 1);
 const DAYS = (Date.UTC(2026, 9, 16) - FIRST_DAY) / DAY_MS;
 
-/** Seeds the NFR-1 catalog with SQL straight into the test database (fixture code): 20 000 API calls would be slow. */
-export function seedCatalog(db: ReturnType<typeof openDatabase>): void {
+/**
+ * Seeds the NFR-1 catalog with SQL straight into the test database (fixture code): 20 000 API calls would be slow.
+ * `watchEvery`: only movie ids divisible by it are watched (default 1: all, as the existing perf tests expect).
+ */
+export function seedCatalog(db: ReturnType<typeof openDatabase>, { watchEvery = 1 }: { watchEvery?: number } = {}): void {
   const genre = db.prepare('INSERT INTO genres (id, name, name_key) VALUES (?, ?, ?)');
   const movie = db.prepare('INSERT INTO movies (id, title, title_key, year, director) VALUES (?, ?, ?, ?, ?)');
   const link = db.prepare('INSERT INTO movie_genres (movie_id, genre_id) VALUES (?, ?)');
@@ -32,7 +35,7 @@ export function seedCatalog(db: ReturnType<typeof openDatabase>): void {
       // Three distinct genres per movie, chosen deterministically.
       for (const g of [i % CATALOG_GENRES, (i + 7) % CATALOG_GENRES, (i + 13) % CATALOG_GENRES]) link.run(i, g + 1);
       const day = new Date(FIRST_DAY + ((i * 37) % (DAYS + 1)) * DAY_MS).toISOString().slice(0, 10);
-      watch.run(i, day, (i % 10) + 1, i % 3 === 0 ? `note ${i}` : null);
+      if (i % watchEvery === 0) watch.run(i, day, (i % 10) + 1, i % 3 === 0 ? `note ${i}` : null);
     }
   })();
 }

@@ -48,6 +48,18 @@ export class MovieRepository {
     return { items: this.withGenres(rows), total };
   }
 
+  /** Every movie without a Watch Entry (FR-7 candidates), ordered by id; one literal statement (NFR-3). */
+  listUnwatched(): Movie[] {
+    const rows = this.db
+      .prepare(
+        `SELECT m.id, m.title, m.year, m.director FROM movies m
+         WHERE NOT EXISTS (SELECT 1 FROM watches w WHERE w.movie_id = m.id)
+         ORDER BY m.id`,
+      )
+      .all() as MovieRow[];
+    return this.withGenres(rows);
+  }
+
   create(input: MovieInput): Movie {
     return this.db.transaction(() => {
       const { lastInsertRowid } = this.db
