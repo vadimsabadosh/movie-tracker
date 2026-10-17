@@ -39,6 +39,13 @@ describe('app', () => {
     expect(Object.keys(items.items.properties).sort()).toEqual(['explanation', 'movie', 'reasons', 'score']);
   });
 
+  it('documents GET /stats with a 200 response schema (NFR-6)', async () => {
+    const app = await testApp();
+    const openapi = (await app.inject('/openapi.json')).json();
+    const schema = openapi.paths['/stats'].get.responses['200'].content['application/json'].schema;
+    expect(Object.keys(schema.properties).sort()).toEqual(['averageRating', 'byGenre', 'byYear', 'watchedCount']);
+  });
+
   it('returns 404 in the common error format for unknown routes', async () => {
     const app = await testApp();
     const res = await app.inject('/nope');
