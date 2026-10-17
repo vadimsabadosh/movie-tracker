@@ -22,6 +22,14 @@ describe('app', () => {
     );
   });
 
+  it('documents GET /profile with a 200 response schema (NFR-6)', async () => {
+    const app = await testApp();
+    const openapi = (await app.inject('/openapi.json')).json();
+    const ok = openapi.paths['/profile'].get.responses['200'];
+    expect(ok.content['application/json'].schema.properties).toHaveProperty('genres');
+    expect(ok.content['application/json'].schema.properties).toHaveProperty('directors');
+  });
+
   it('returns 404 in the common error format for unknown routes', async () => {
     const app = await testApp();
     const res = await app.inject('/nope');
