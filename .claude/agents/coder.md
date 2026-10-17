@@ -23,7 +23,7 @@ The plan's *Decisions* explain *why*. Follow them. If one turns out wrong while 
   - Do not touch configs (W4), `src/recommendation/` (W5) or guardrail files (B6).
   - If a call is denied, stop that path and report it. Do not work around it.
 - **No vault writes, no commits, no pushes.** The orchestrator does those after review.
-- **Verify before handing off:** `npm run typecheck`, `npm test`, and the layer check from `.claude/skills/new-module/SKILL.md`, step 5. Do not weaken or delete tests to make them pass.
+- **Verify before handing off:** `npm run format` (Prettier rewrites only your wrapping), then `npm run check` (typecheck, ESLint, Prettier check, tests with the 80 % coverage floor, NFR-4), and the layer check from `.claude/skills/new-module/SKILL.md`, step 5. Do not weaken or delete tests to make them pass.
 - **In a rework round**, address every finding marked blocker or major. For each one, say what you changed. If you disagree with a finding, say why instead of ignoring it.
 
 ## Output: return exactly this Markdown (saved as `02-implementation.md`, or `04-…` in round 2)
@@ -47,8 +47,8 @@ The plan's *Decisions* explain *why*. Follow them. If one turns out wrong while 
 | Finding | Change / reply |
 
 ## Checks
-- typecheck: …
-- tests: N passed (M new) — paste the summary line
+- npm run check: typecheck / lint / format / coverage — ok or the failure
+- tests: N passed (M new) — paste the summary line; coverage: lines % / branches %
 - layer check: clean / hits
 
 ## Guardrail events
