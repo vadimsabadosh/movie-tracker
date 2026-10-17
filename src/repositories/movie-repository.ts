@@ -42,9 +42,9 @@ export class MovieRepository {
          ORDER BY title_key, year, id LIMIT @limit OFFSET @offset`,
       )
       .all({ q, limit: query.limit, offset: query.offset }) as MovieRow[];
-    const { total } = this.db
-      .prepare('SELECT COUNT(*) AS total FROM movies WHERE @q IS NULL OR instr(title_key, @q) > 0')
-      .get({ q }) as { total: number };
+    const { total } = this.db.prepare('SELECT COUNT(*) AS total FROM movies WHERE @q IS NULL OR instr(title_key, @q) > 0').get({ q }) as {
+      total: number;
+    };
     return { items: this.withGenres(rows), total };
   }
 
@@ -89,7 +89,10 @@ export class MovieRepository {
   }
 
   private withGenres(rows: MovieRow[]): Movie[] {
-    const genres = genresByMovie(this.db, rows.map((r) => r.id));
+    const genres = genresByMovie(
+      this.db,
+      rows.map((r) => r.id),
+    );
     return rows.map((r) => ({ ...r, genres: genres.get(r.id) ?? [] }));
   }
 }
