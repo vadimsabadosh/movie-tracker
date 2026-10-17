@@ -2,6 +2,7 @@
 import { mkdir, readdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { git, hasUpstream } from './git.ts';
+import type { SemanticIndex } from './semantic.ts';
 import {
   adrId,
   asStringArray,
@@ -32,6 +33,8 @@ export interface VaultOptions {
   mocFile?: string;
   push?: boolean;
   today?: () => string;
+  /** Semantic retrieval (PR7); without it, or when it fails, search falls back to keywords. */
+  semantic?: SemanticIndex;
 }
 
 export interface NoteFile {
@@ -79,8 +82,16 @@ export interface SearchHit {
   title: string;
   path: string;
   type: string;
+  /** `##` section the fragment comes from (semantic search only); empty for the note intro. */
+  section?: string;
   score: number;
   snippet: string;
+}
+
+export interface SearchOptions {
+  type?: string;
+  tag?: string;
+  limit?: number;
 }
 
 export class Vault {
@@ -88,6 +99,7 @@ export class Vault {
   private readonly mocFile: string;
   private readonly push: boolean;
   private readonly today: () => string;
+  private readonly semantic?: SemanticIndex;
   // Ingests are serialized so two calls never race on the same git index.
   private queue: Promise<unknown> = Promise.resolve();
 
@@ -96,6 +108,7 @@ export class Vault {
     this.mocFile = options.mocFile ?? 'MOC - movie-tracker.md';
     this.push = options.push ?? true;
     this.today = options.today ?? (() => new Date().toISOString().slice(0, 10));
+    this.semantic = options.semantic;
   }
 
   async assertReady(): Promise<void> {
@@ -141,7 +154,24 @@ export class Vault {
     return { path: note.path, title: note.title, frontmatter: note.frontmatter, body: note.body, backlinks, relations: relationsOf(note, notes) };
   }
 
-  async search(query: string, options: { type?: string; tag?: string; limit?: number } = {}): Promise<SearchHit[]> {
+  async search(query: string, options: SearchOptions = {}): Promise<SearchHit[]> {
+    if (this.semantic) {
+      try {
+        return await this.semantic.search(await this.listNotes(), query, options);
+      } catch (error) {
+        console.error(`vault-mcp: semantic search failed, falling back to keywords: ${(error as Error).message}`);
+      }
+    }
+    return this.keywordSearch(query, options);
+  }
+
+  /** Brings the semantic index up to date; a no-op in keyword mode. */
+  async syncIndex(): Promise<void> {
+    if (this.semantic) await this.semantic.sync(await this.listNotes());
+  }
+
+  /** Pre-PR7 retrieval: term matches in titles, aliases, tags and bodies. */
+  async keywordSearch(query: string, options: SearchOptions = {}): Promise<SearchHit[]> {
     const terms = [...new Set((query.toLowerCase().match(/[\p{L}\p{N}-]+/gu) ?? []).filter((t) => t.length > 1).map(stem))];
     if (terms.length === 0) return [];
     const hits: SearchHit[] = [];
@@ -357,7 +387,7 @@ export function addToMoc(mocText: string, title: string, type: NoteType): string
 }
 
 // Crude stemming: Ukrainian words change endings ("рекомендація" / "рекомендацій"),
-// so long terms are matched by prefix. Semantic search replaces this in PR7.
+// so long terms are matched by prefix. Kept as the fallback for semantic search (PR7).
 function stem(term: string): string {
   return term.length > 6 ? term.slice(0, Math.max(6, term.length - 3)) : term;
 }

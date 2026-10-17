@@ -1,22 +1,11 @@
 // MCP server "vault": the only channel between the agent and the movie-tracker-vault repository.
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { NOTE_TYPES, RELATION_TYPES, RELATIONS } from './notes.ts';
-import { Vault } from './vault.ts';
+import { createSemanticIndex, createVault, searchMode, vaultRoot } from './config.ts';
 
-// harness/vault-mcp/src -> app repository root
-const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
-// The vault is a sibling clone of the app repository, never a folder inside it (ADR-005).
-const vaultRoot = path.resolve(APP_ROOT, process.env.VAULT_PATH ?? '../movie-tracker-vault');
-
-const vault = new Vault({
-  root: vaultRoot,
-  mocFile: process.env.VAULT_MOC ?? 'MOC - movie-tracker.md',
-  push: process.env.VAULT_PUSH !== 'false',
-});
+const vault = createVault(searchMode === 'semantic' ? createSemanticIndex() : undefined);
 
 function ok(data: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
@@ -27,7 +16,7 @@ function fail(error: unknown) {
 }
 
 const server = new McpServer(
-  { name: 'vault', version: '0.1.0' },
+  { name: 'vault', version: '0.2.0' },
   {
     instructions:
       'Knowledge base (Obsidian vault) of the movie-tracker app. Start from get_note("MOC - movie-tracker"). ' +
@@ -106,7 +95,7 @@ server.registerTool(
     try {
       const note = await vault.getNote(title);
       if (note) return ok(note);
-      const suggestions = (await vault.search(title, { limit: 5 })).map((h) => h.title);
+      const suggestions = [...new Set((await vault.search(title, { limit: 10 })).map((h) => h.title))].slice(0, 5);
       return fail(new Error(`No note "${title}". Closest matches: ${suggestions.join(', ') || 'none'}`));
     } catch (error) {
       return fail(error);
@@ -122,7 +111,7 @@ server.registerTool(
       'Keyword search over note titles, aliases, tags and bodies (Ukrainian or English). ' +
       'Returns ranked titles with a snippet; read the full note with get_note.',
     inputSchema: {
-      query: z.string().min(1).describe('Words to look for, e.g. "рекомендації детермінованість"'),
+      query: z.string().min(1).describe('What you are looking for, e.g. "why are recommendations deterministic" or "рекомендації детермінованість"'),
       type: z.enum([...NOTE_TYPES, 'moc']).optional().describe('Only notes of this type'),
       tag: z.string().optional().describe('Only notes with this tag'),
       limit: z.number().int().min(1).max(50).optional().describe('Maximum results (default 10)'),
@@ -145,4 +134,9 @@ try {
   process.exit(1);
 }
 await server.connect(new StdioServerTransport());
-console.error(`vault-mcp: serving ${vaultRoot}`);
+console.error(`vault-mcp: serving ${vaultRoot} (${searchMode} search)`);
+// Indexing after connect keeps startup fast; the first search waits for it (the model may still be downloading).
+vault.syncIndex().then(
+  () => console.error('vault-mcp: semantic index ready'),
+  (error: Error) => console.error(`vault-mcp: indexing failed, search falls back to keywords: ${error.message}`),
+);
