@@ -1,0 +1,12 @@
+{
+  "name": "movie-tracker-lint",
+  "private": true,
+  "description": "ESLint for movie-tracker (NFR-4). Separate package: typescript-eslint needs the TypeScript 6 JS API, while the app type-checks with TypeScript 7, which has none.",
+  "type": "module",
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.12.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.71.0"
+  }
+}
