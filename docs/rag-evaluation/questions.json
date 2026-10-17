@@ -1,0 +1,12 @@
+[
+  { "id": "Q1", "kind": "fact", "question": "What range of values can a rating have?", "expected": ["Rating"] },
+  { "id": "Q2", "kind": "fact, Ukrainian", "question": "Чому не можна видалити фільм, який уже переглянуто?", "expected": ["ADR-009 One Watch Entry Per Movie Kept on Delete"] },
+  { "id": "Q3", "kind": "decision rationale", "question": "Why does the app store lowercase copies of titles instead of using SQLite NOCASE?", "expected": ["ADR-008 Unicode Case-Insensitive Keys in App Layer"] },
+  { "id": "Q4", "kind": "decision rationale, Ukrainian", "question": "Як працює сортування історії переглядів без складання SQL-рядків?", "expected": ["ADR-011 Sort Selection by Bound Parameters"] },
+  { "id": "Q5", "kind": "paraphrase", "question": "What happens if I rewatch a movie I have already marked as watched?", "expected": ["ADR-009 One Watch Entry Per Movie Kept on Delete"] },
+  { "id": "Q6", "kind": "multi-note", "question": "Which HTTP status and error code do I get when the minimum rating filter is greater than the maximum?", "expected": ["ADR-010 Watch History Query Contract", "Error Handling"] },
+  { "id": "Q7", "kind": "paraphrase", "question": "How is the user's taste profile computed, and is it stored in the database?", "expected": ["Preference Profile"] },
+  { "id": "Q8", "kind": "multi-note", "question": "Why are recommendations deterministic and how are ties between equal scores broken?", "expected": ["ADR-003 Deterministic Recommender Behind Interface", "Recommendation Score"] },
+  { "id": "Q9", "kind": "multi-note, harness", "question": "Why can't the agent edit the knowledge base files directly?", "expected": ["ADR-005 Separate Vault Repository with MCP Access", "Guardrail"] },
+  { "id": "Q10", "kind": "planning, multi-note", "question": "Which notes and decisions should I read before implementing viewing statistics (FR-8)?", "expected": ["Viewing Statistics", "ADR-009 One Watch Entry Per Movie Kept on Delete", "Repositories Layer"] }
+]

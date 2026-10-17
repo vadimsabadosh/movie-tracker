@@ -4,3 +4,4 @@ node_modules/
 .env.*
 .claude/guardrails.log
 data/
+harness/vault-mcp/.index/

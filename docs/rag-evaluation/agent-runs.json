@@ -1,0 +1,269 @@
+[
+  {
+    "id": "Q1",
+    "mode": "keyword",
+    "model": "claude-sonnet-5-5",
+    "searches": [
+      "search_notes: {\"query\":\"rating range of values\"}",
+      "search_notes: {\"query\":\"рейтинг оцінка діапазон значень\"}"
+    ],
+    "answer": "Оцінка (Rating) — це ціле число від 1 до 10. Вона є частиною Watch Entry і є особистою оцінкою фільму користувачем.\n\nДжерела: нотатка «Rating» (Concepts/Rating.md). ADR-009 («One Watch Entry Per Movie Kept on Delete») підтверджує це: у FR-3 сказано «оцінка 1–10».",
+    "turns": 3,
+    "durationMs": 5249,
+    "costUsd": 0.0245
+  },
+  {
+    "id": "Q2",
+    "mode": "keyword",
+    "model": "claude-sonnet-5-5",
+    "searches": [
+      "search_notes: {\"query\":\"видалити переглянутий фільм\"}",
+      "search_notes: {\"query\":\"delete watched movie\"}",
+      "search_notes: {\"query\":\"ADR-009 видалення фільму з переглядом відмова 409 RESTRICT\",\"limit\":3}"
+    ],
+    "answer": "У базі знань немає прямої відповіді на це запитання. Пошук повертає лише уривки, а повного тексту нотаток я прочитати не можу.\n\nНайближча за темою нотатка — **ADR-009 One Watch Entry Per Movie Kept on Delete**. З її назви й уривків видно таке:\n- Для кожного фільму існує одна запис про перегляд (**Watch Entry**).\n- Рішення стосується того, що запис про перегляд зберігається під час видалення.\n- Повторну позначку перегляду **Error Handling** вважає конфліктом (409).\n\nЧи справді API забороняє видаляти переглянутий фільм і чому, у цих уривках не сказано. Я не хочу вгадувати причину. Щоб дізнатися точно, відкрийте ADR-009 повністю.",
+    "turns": 4,
+    "durationMs": 8256,
+    "costUsd": 0.0315
+  },
+  {
+    "id": "Q3",
+    "mode": "keyword",
+    "model": "claude-sonnet-5-5",
+    "searches": [
+      "search_notes: {\"query\":\"lowercase title copy SQLite NOCASE\"}",
+      "search_notes: {\"query\":\"регістр назв пошук нижній регістр\"}",
+      "search_notes: {\"query\":\"NOCASE лише ASCII кирилиця title_key\",\"type\":\"decision\"}"
+    ],
+    "answer": "Відповідь у базі знань лише часткова. Сніпети з пошуку обрізані, а повний текст нотатки мені недоступний.\n\nГоловне джерело — **ADR-008 Unicode Case-Insensitive Keys in App Layer**. З нього видно таке:\n- FR-5 вимагає пошуку фільмів за частиною назви без урахування регістру.\n- Каталог має бути унікальним за парою (назва, рік), теж без урахування регістру.\n- Назви бувають українською.\n\nТаке рішення — це зберігати окремі ключі в нижньому регістрі, а не покладатися на SQLite. Підтверджують це **ADR-010 Watch History Query Contract** і **ADR-011 Sort Selection by Bound Parameters**. У них жанри порівнюють через `name_key`, а сортування за назвою йде за бінарним порядком `title_key`.\n\nПрямого пояснення, чому саме не підходить NOCASE, я в доступних фрагментах не знайшов. Імовірна причина — обмеження NOCASE для кирилиці. Це моя здогадка, у базі я цього не бачив.",
+    "turns": 4,
+    "durationMs": 10243,
+    "costUsd": 0.033
+  },
+  {
+    "id": "Q4",
+    "mode": "keyword",
+    "model": "claude-sonnet-5-5",
+    "searches": [
+      "search_notes: {\"query\":\"сортування історії переглядів SQL\"}",
+      "search_notes: {\"query\":\"watch history sorting whitelist query builder\"}",
+      "search_notes: {\"query\":\"ADR-011 вибір сортування CASE параметр прив'язки ORDER BY\",\"type\":\"decision\",\"limit\":3}"
+    ],
+    "answer": "Я не можу дати повну відповідь. База знань містить лише обрізані фрагменти, а відкрити повний текст нотаток я не можу.\n\nОсь що вони підтверджують:\n- **ADR-011 Sort Selection by Bound Parameters:** вимога NFR-3 дозволяє лише параметризовані запити. Skill `new-module` (крок 5) забороняє будь-який SQL зі складених рядків. Рішення в назві: сортування обирається через прив'язані параметри, а не конкатенацією.\n- **ADR-010 Watch History Query Contract:** описує параметри запиту FR-4 для [[Watch History]]. Це фільтри, сортування та пагінація.\n\nЯк саме задано відповідність параметра сортування конкретним колонкам чи виразам, у доступних фрагментах немає. Конкретний механізм я не вигадуватиму.\n\nНотатки, на які я спирався: ADR-011 Sort Selection by Bound Parameters, ADR-010 Watch History Query Contract.",
+    "turns": 4,
+    "durationMs": 8786,
+    "costUsd": 0.0322
+  },
+  {
+    "id": "Q5",
+    "mode": "keyword",
+    "model": "claude-sonnet-5-5",
+    "searches": [
+      "search_notes: {\"query\":\"rewatch already watched movie\"}",
+      "search_notes: {\"query\":\"повторний перегляд\"}"
+    ],
+    "answer": "Повторна позначка перегляду вважається конфліктом, і API поверне **409**. Згідно з базою знань, на кожен фільм існує лише одна запис про перегляд (Watch Entry), тому другий запис для того самого фільму не створюється, а історія переглядів не накопичує повторні перегляди.\n\nУ знайдених фрагментах нічого не сказано про оновлення дати чи оцінки під час повторного перегляду. Повних текстів нотаток я не відкривав, тому докладніше сказати не можу.\n\nНотатки, на які я спирався:\n- ADR-009 One Watch Entry Per Movie Kept on Delete\n- Error Handling\n- Watch Entry",
+    "turns": 3,
+    "durationMs": 6439,
+    "costUsd": 0.026
+  },
+  {
+    "id": "Q6",
+    "mode": "keyword",
+    "model": "claude-sonnet-5-5",
+    "searches": [
+      "search_notes: {\"query\":\"minimum rating greater than maximum filter error\"}",
+      "search_notes: {\"query\":\"мінімальний рейтинг більший за максимальний помилка\"}",
+      "search_notes: {\"query\":\"minRating maxRating 400 VALIDATION_ERROR діапазон перевернутий\"}"
+    ],
+    "answer": "Відповідь була б у ADR-010, але я не можу прочитати його повністю. Пошук повертає лише обрізані уривки, а `get_note` мені недоступний.\n\nТе, що вдалося знайти:\n- **Error Handling:** помилка валідації через Validation Schemas дає HTTP **400**.\n- **ADR-010 Watch History Query Contract:** згадує межі діапазонів і поведінку на неправильних значеннях, але у видимому уривку немає ні того, що робиться, коли мінімум більший за максимум, ні коду помилки.\n\nТому код помилки для цього випадку в базі знань я підтвердити не можу. Вгадувати не буду. Імовірний статус — 400, бо це помилка валідації, але саме для перевернутого діапазону рейтингу це не підтверджено.\n\nВикористані нотатки: ADR-010 Watch History Query Contract, Error Handling, Validation Schemas, Rating.",
+    "turns": 4,
+    "durationMs": 8191,
+    "costUsd": 0.0356
+  },
+  {
+    "id": "Q7",
+    "mode": "keyword",
+    "model": "claude-sonnet-5-5",
+    "searches": [
+      "search_notes: {\"query\":\"taste profile\"}",
+      "search_notes: {\"query\":\"профіль смаку\"}"
+    ],
+    "answer": "**Як обчислюється:** профіль вподобань (Preference Profile) — це агреговане представлення смаків користувача, яке обчислюється з історії переглядів (Watch History). Обчислює його ProfileService у шарі сервісів, а віддає маршрут `/profile` (FR-6). До профілю входять улюблені жанри, середня оцінка за жанром і улюблені режисери.\n\n**Чи зберігається в базі:** ні. Профіль не зберігається окремо, а щоразу обчислюється з історії. Історія є єдиним джерелом правди.\n\nДеталей точної формули обчислення в моїх результатах пошуку немає. Я бачив лише уривки нотаток, а повні тексти прочитати не міг.\n\n**Нотатки, на які я спирався:** Preference Profile, Services Layer, Routes Layer, Genre, Director, Rating.",
+    "turns": 3,
+    "durationMs": 6690,
+    "costUsd": 0.0217
+  },
+  {
+    "id": "Q8",
+    "mode": "keyword",
+    "model": "claude-sonnet-5-5",
+    "searches": [
+      "search_notes: {\"query\":\"рекомендації детермінованість\"}",
+      "search_notes: {\"query\":\"recommendations deterministic tie-break equal scores\"}"
+    ],
+    "answer": "**Чому детерміновані.** Згідно з ADR-003, NFR-5 вимагає однакового результату для однакового стану БД. Це потрібно, щоб у ПР № 7 можна було відтворювано порівнювати роботу агента. Тому базова реалізація [[Recommender]] рахує Recommendation Score за фіксованою формулою. Формула порівнює жанр і режисера фільму з Preference Profile. Рекомендації також не залежать від випадковості.\n\n**Рівні скори.** Нота Recommendation каже, що рівні скори впорядковуються стабільно (NFR-5). Конкретного ключа тай-брейку (наприклад, `movieId`) у знайдених фрагментах немає. Повні тексти нот я не відкривав, тому ключ назвати не можу. Схожий тай-брейк є лише в ADR-010, але він стосується історії переглядів (`watchedAt` → `movieId`), а не рекомендацій.\n\n**Ноти:** ADR-003 Deterministic Recommender Behind Interface, Recommendation, Recommendation Score, Recommender, ADR-010 Watch History Query Contract.",
+    "turns": 3,
+    "durationMs": 7593,
+    "costUsd": 0.0264
+  },
+  {
+    "id": "Q9",
+    "mode": "keyword",
+    "model": "claude-sonnet-5-5",
+    "searches": [
+      "search_notes: {\"query\":\"agent cannot edit knowledge base files directly\"}",
+      "search_notes: {\"query\":\"ingest_note vault write access agent\"}",
+      "search_notes: {\"query\":\"ADR-005 vault окремий репозиторій чому MCP замість прямого доступу до файлів\",\"limit\":5}"
+    ],
+    "answer": "The agent can't edit the vault files directly because the vault is deliberately kept outside the app's working directory. The only way in is through the MCP server.\n\n- If the knowledge base sat inside the application repository, the agent could read and change it with ordinary file access. That would bypass the controlled layer (ADR-005).\n- So the vault is a separate git repository, `movie-tracker-vault`, cloned outside the app directory.\n- The [[Vault MCP Server]] is the single channel between the agent and the vault. It works over stdio and implements ADR-005.\n- Writes go through `ingest_note`, which must be idempotent.\n\nThe search snippets didn't show the rest of ADR-005, such as every reason behind the decision. I can't confirm anything beyond what's above.\n\nNotes relied on:\n- ADR-005 Separate Vault Repository with MCP Access\n- Vault MCP Server\n- Agent Harness\n- MCP",
+    "turns": 4,
+    "durationMs": 7506,
+    "costUsd": 0.0317
+  },
+  {
+    "id": "Q10",
+    "mode": "keyword",
+    "model": "claude-sonnet-5-5",
+    "searches": [
+      "search_notes: {\"query\":\"FR-8 статистика переглядів\"}",
+      "search_notes: {\"query\":\"viewing statistics\"}",
+      "search_notes: {\"query\":\"FR-8\"}"
+    ],
+    "answer": "Перед реалізацією FR-8 прочитайте такі нотатки. Я бачив лише уривки з пошуку, а повні тексти не відкривав.\n\n**Основна:**\n- **Viewing Statistics** (Concepts) описує зведені показники за Watch History. Серед них кількість переглянутих фільмів, середня оцінка загалом і розподіл за жанрами.\n\n**Рішення (ADR):**\n- **ADR-009 One Watch Entry Per Movie Kept on Delete** визначає, що на фільм припадає один Watch Entry. Це впливає на підрахунок.\n- **ADR-002 SQLite with better-sqlite3** згадує агрегатні запити для статистики як одну з причин вибору SQLite.\n- **ADR-010 Watch History Query Contract** і **ADR-011 Sort Selection by Bound Parameters** стосуються запитів до історії. Вони корисні, якщо статистика має фільтри чи період.\n\n**Супутні:**\n- Concepts: **Watch Entry**, **Watch History**, **Rating**, **Genre**.\n- Components: **Routes Layer** (маршрут `/stats`), **Services Layer** (StatsService) і **Error Handling**.\n- **Requirement ID** і **MOC - movie-tracker** дають загальний контекст.\n\nОкремого ADR саме про статистику в базі я не знайшов.",
+    "turns": 4,
+    "durationMs": 7327,
+    "costUsd": 0.0299
+  },
+  {
+    "id": "Q1",
+    "mode": "semantic",
+    "model": "claude-sonnet-5-5",
+    "searches": [
+      "search_notes: {\"query\":\"rating range of values\"}",
+      "search_notes: {\"query\":\"рейтинг діапазон значень\"}"
+    ],
+    "answer": "A rating can be a value from 1 to 10. Values outside that range are rejected by Validation Schemas, and the error comes back in the Error Handling format.\n\nThe watch-history filters `ratingMin` and `ratingMax` use the same 1–10 range. The range is inclusive. If `ratingMin` is greater than `ratingMax`, the API returns a 400 `VALIDATION_ERROR`.\n\nThe snippets don't say whether a rating must be a whole number.\n\nNotes I relied on: **Rating** and **ADR-010 Watch History Query Contract**.",
+    "turns": 3,
+    "durationMs": 5282,
+    "costUsd": 0.0332
+  },
+  {
+    "id": "Q2",
+    "mode": "semantic",
+    "model": "claude-sonnet-5-5",
+    "searches": [
+      "search_notes: {\"query\":\"видалення переглянутого фільму\"}",
+      "search_notes: {\"query\":\"delete watched movie\"}"
+    ],
+    "answer": "Видалити переглянутий фільм напряму не можна, бо історія переглядів не повинна зникати разом із фільмом. Якщо спробувати, `DELETE /movies/:id` поверне 409. Це перевіряє `MovieService.delete`. У БД є ще одна перевірка: `REFERENCES movies (id) ON DELETE RESTRICT`.\n\nАльтернативи відхилили:\n- `ON DELETE CASCADE` мовчки знищив би оцінку й нотатку, а це незворотна втрата особистої історії.\n- `SET NULL` або м'яке видалення залишили б записи, що посилаються на фільм, якого вже немає в каталозі. Це ускладнило б запити FR-4, FR-6 і FR-8.\n\nЩоб видалити такий фільм, треба зробити два кроки. Спочатку скасувати позначку перегляду (`DELETE /movies/:id/watch`), потім видалити сам фільм.\n\nДжерело: нотатка «ADR-009 One Watch Entry Per Movie Kept on Delete».",
+    "turns": 3,
+    "durationMs": 6836,
+    "costUsd": 0.0408
+  },
+  {
+    "id": "Q3",
+    "mode": "semantic",
+    "model": "claude-sonnet-5-5",
+    "searches": [
+      "search_notes: {\"query\":\"lowercase title copy NOCASE SQLite\"}",
+      "search_notes: {\"query\":\"регістр назви пошук нижній регістр\"}"
+    ],
+    "answer": "Бо `COLLATE NOCASE` і `LIKE` в SQLite згортають регістр лише для ASCII, а назви бувають українською. Тому «Тіні» ≠ «тіні». Дублікат кирилицею пройшов би перевірку унікальності. Пошук «ЗАБУТИХ» не знайшов би «Тіні забутих предків».\n\nТому застосунок зберігає окремий стовпець `*_key`. Це назва в нижньому регістрі, яку репозиторій обчислює через `trim().toLocaleLowerCase('uk')`. Унікальність забезпечує `UNIQUE (title_key, year)`, а пошук іде через `instr(title_key, @q)`.\n\nВідхилені альтернативи:\n- **ICU-розширення:** потребує нативної збірки й ламає запуск однією командою (NFR-7).\n- **Власна функція SQLite в кожному запиті:** індекс не використовується, виходить повний перебір таблиці (NFR-1).\n\nНедолік: `instr` не використовує індекс. Для 10 000 фільмів це прийнятно.\n\nДжерела: «ADR-008 Unicode Case-Insensitive Keys in App Layer», «ADR-002 SQLite with better-sqlite3».",
+    "turns": 3,
+    "durationMs": 6299,
+    "costUsd": 0.0401
+  },
+  {
+    "id": "Q4",
+    "mode": "semantic",
+    "model": "claude-sonnet-5-5",
+    "searches": [
+      "search_notes: {\"query\":\"сортування історії переглядів SQL\"}",
+      "search_notes: {\"query\":\"watch history sorting without string concatenation SQL\"}"
+    ],
+    "answer": "SQLite не дає передати ім'я стовпця чи `ASC`/`DESC` як параметр. Тому сортування працює через зв'язані параметри, а не через текст SQL.\n\n- Поле й напрям приходять із закритих Zod-переліків `WatchSort` і `SortOrder`. Їх прив'язують як `@sort` і `@order`.\n- Запит один, фіксований. У ньому для кожної пари «поле × напрям» є свій терм, наприклад `CASE WHEN @sort = 'rating' AND @order = 'desc' THEN w.rating END DESC`.\n- Для неактивної пари `CASE` дає NULL, тому вона не впливає на порядок.\n- Після цих термів ідуть терми tie-break і завжди `w.movie_id`.\n- Сторінка й підрахунок — два повні літеральні запити, `HISTORY_PAGE_SQL` і `HISTORY_COUNT_SQL`. Блок `WHERE` у них однаковий і записаний двічі, бо спільний фрагмент довелося б конкатенувати.\n- Невідоме значення `@sort` дало б лише порядок за `movie_id`, а не ін'єкцію.\n\nВибір пояснює правило NFR-3: лише параметризовані запити. Через нього відхилили варіант із константною мапою `ORDER BY` і конкатенацією.\n\nДжерела: ADR-011 Sort Selection by Bound Parameters, ADR-010 Watch History Query Contract.",
+    "turns": 3,
+    "durationMs": 6920,
+    "costUsd": 0.0454
+  },
+  {
+    "id": "Q5",
+    "mode": "semantic",
+    "model": "claude-sonnet-5-5",
+    "searches": [
+      "search_notes: {\"query\":\"rewatch movie already watched\"}",
+      "search_notes: {\"query\":\"повторний перегляд фільму\"}"
+    ],
+    "answer": "If you rewatch a movie you've already marked as watched, the app updates the existing watch entry and doesn't create a second one.\n\n- Each movie has only one watch entry.\n- Marking it as watched a second time with `POST` returns a 409 conflict.\n- To record the rewatch, you use `PUT /movies/:id/watch`. The new date and rating replace the old ones.\n- The history of earlier viewings is not kept, so the app can't tell you how many times you've seen a movie.\n- Keeping several viewings per movie would need a new migration and a new ADR that replaces this one.\n\nNotes used: ADR-009 One Watch Entry Per Movie Kept on Delete, Watch Entry.",
+    "turns": 3,
+    "durationMs": 6367,
+    "costUsd": 0.038
+  },
+  {
+    "id": "Q6",
+    "mode": "semantic",
+    "model": "claude-sonnet-5-5",
+    "searches": [
+      "search_notes: {\"query\":\"minimum rating greater than maximum filter error\"}",
+      "search_notes: {\"query\":\"мінімальний рейтинг більший за максимальний помилка\"}"
+    ],
+    "answer": "Ви отримаєте **HTTP 400** з кодом помилки **`VALIDATION_ERROR`**. Це стосується `GET /watches`, коли `ratingMin > ratingMax`. Поле `details[0].path` у відповіді вказує на верхню межу.\n\nПорожній результат для перевернутого діапазону не повертається. Це відхилено, бо він приховував би помилку клієнта.\n\nДжерела: ADR-010 Watch History Query Contract (основне), Error Handling (помилки валідації дають 400).",
+    "turns": 3,
+    "durationMs": 5817,
+    "costUsd": 0.0407
+  },
+  {
+    "id": "Q7",
+    "mode": "semantic",
+    "model": "claude-sonnet-5-5",
+    "searches": [
+      "search_notes: {\"query\":\"taste profile\"}",
+      "search_notes: {\"query\":\"профіль смаку\"}"
+    ],
+    "answer": "Профіль смаку (note «Preference Profile») не зберігається в базі даних. Його щоразу обчислюють із [[Watch History]], бо історія залишається єдиним джерелом правди.\n\n**Що в ньому рахується (FR-6):**\n- улюблені жанри, за кількістю переглядів та оцінками;\n- улюблені режисери;\n- середня оцінка за жанром.\n\nОбчислення виконує ProfileService (note «Services Layer»). Дані доступні через ендпоінт `/profile` (note «Routes Layer»). Профіль слугує входом для Recommender, який формує рекомендації.\n\nНотатки не описують точну формулу ваг для «улюблених» жанрів і режисерів. Там є лише критерії «за кількістю та оцінками».\n\n**Нотатки, на які я спирався:** Preference Profile, Services Layer, Routes Layer, Recommender.",
+    "turns": 3,
+    "durationMs": 6394,
+    "costUsd": 0.0341
+  },
+  {
+    "id": "Q8",
+    "mode": "semantic",
+    "model": "claude-sonnet-5-5",
+    "searches": [
+      "search_notes: {\"query\":\"рекомендації детермінованість\"}",
+      "search_notes: {\"query\":\"recommendations deterministic tie-break equal scores\"}"
+    ],
+    "answer": "**Why it's deterministic:** NFR-5 requires the same result for the same database state. That lets the agent's work be compared reproducibly in ПР № 7. The base `Recommender` computes the `Recommendation Score` from the `Preference Profile` using a fixed formula. The score is based on how well the movie's genre and director match the profile. LLM-based recommendations were rejected as non-deterministic. They remain only as an optional extension behind the same interface. Collaborative filtering was rejected because there are no other users.\n\n**Tie-breaking:** Equal scores are ordered by a stable key, the movie id. The weights themselves are fixed in code and tests during implementation. Because of this, tests can check the exact order of recommendations.\n\n**Notes used:** ADR-003 Deterministic Recommender Behind Interface, Recommender, Recommendation, Recommendation Score.",
+    "turns": 3,
+    "durationMs": 6366,
+    "costUsd": 0.0327
+  },
+  {
+    "id": "Q9",
+    "mode": "semantic",
+    "model": "claude-sonnet-5-5",
+    "searches": [
+      "search_notes: {\"query\":\"agent cannot edit knowledge base files directly\"}",
+      "search_notes: {\"query\":\"ingest_note vault write access\"}"
+    ],
+    "answer": "Because the knowledge base is meant to be reached only through a controlled layer.\n\n- If the vault sat inside the app repository, the agent could read and change it without any control. The vault is therefore a separate git repository, `movie-tracker-vault`, cloned outside the app directory.\n- The agent's only access is the MCP server, with `ingest_note` for writing and `get_note` and `search_notes` for reading. Direct access to the vault is blocked by a [[Guardrail]] rule.\n- The server validates input before it writes anything. It handles git pull, commit and push, and ingestion is idempotent. It also adds new notes to the MOC and never deletes notes.\n\nNotes relied on: ADR-005 Separate Vault Repository with MCP Access, Vault MCP Server.",
+    "turns": 3,
+    "durationMs": 5848,
+    "costUsd": 0.0354
+  },
+  {
+    "id": "Q10",
+    "mode": "semantic",
+    "model": "claude-sonnet-5-5",
+    "searches": [
+      "search_notes: {\"query\":\"FR-8 статистика переглядів\"}",
+      "search_notes: {\"query\":\"viewing statistics\"}",
+      "search_notes: {\"query\":\"FR-8\"}"
+    ],
+    "answer": "Перед реалізацією FR-8 прочитайте такі нотатки.\n\n**Основні**\n- **Viewing Statistics** (концепт). Це головна нотатка FR-8. У ній: кількість переглянутих фільмів, середня оцінка, розподіл за жанрами та роками. Агрегатні SQL-запити йдуть у Repositories Layer, а оркестрація — у Services Layer.\n- **ADR-009 One Watch Entry Per Movie Kept on Delete.** Агрегати FR-8 рахують рядки `watches` без `DISTINCT`, бо на фільм припадає одна оцінка. Переглянутий фільм не можна видалити, поки не скасовано позначку.\n\n**Контекст**\n- **Watch History** і **Watch Entry**. Статистика обчислюється з історії.\n- **Routes Layer**. Для статистики заплановано групу `/stats`.\n- **ADR-002 SQLite with better-sqlite3**. Саме заради агрегатних запитів для статистики обрано SQLite.\n\n**Для узгодженості**\n- **ADR-010 Watch History Query Contract**. Це зразок оформлення публічного контракту API.\n- **MOC - movie-tracker**. У ньому видно, як FR-8 пов'язаний з іншими вимогами.\n\nУ базі знань я не знайшов окремого ADR про формат відповіді `/stats`. Нотатки про Services Layer і Repositories Layer я не відкривав, тому їхнього змісту не знаю.",
+    "turns": 4,
+    "durationMs": 7889,
+    "costUsd": 0.0489
+  }
+]

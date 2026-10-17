@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parseNote } from '../src/notes.ts';
+import { SemanticIndex } from '../src/semantic.ts';
 import { addToMoc, Vault } from '../src/vault.ts';
 
 const MOC = `---
@@ -253,6 +254,17 @@ describe('search_notes', () => {
 
   it('returns nothing for an empty query', async () => {
     expect(await vault.search('  ')).toEqual([]);
+  });
+
+  it('falls back to keyword search when semantic search fails', async () => {
+    const broken = new SemanticIndex({
+      dir: path.join(dir, 'index'),
+      embed: async () => {
+        throw new Error('model unavailable');
+      },
+    });
+    const withIndex = new Vault({ root: work, semantic: broken });
+    expect((await withIndex.search('фільм'))[0]?.title).toBe('Movie');
   });
 });
 

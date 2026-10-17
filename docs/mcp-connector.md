@@ -19,7 +19,7 @@
 
 ## 2. Сервер `vault`
 
-Node.js 24 (TypeScript виконується напряму, без збірки), `@modelcontextprotocol/sdk`, `zod`, `yaml`.
+Node.js 24 (TypeScript виконується напряму, без збірки), `@modelcontextprotocol/sdk`, `zod`, `yaml`; з ПР № 7 — `@lancedb/lancedb` і `@huggingface/transformers` для семантичного пошуку (ADR-012).
 
 | Файл | Зміст |
 |------|-------|
@@ -27,7 +27,12 @@ Node.js 24 (TypeScript виконується напряму, без збірк�
 | `src/vault.ts` | Логіка ingestion / retrieval над клоном vault |
 | `src/notes.ts` | Формат нотатки: frontmatter, wiki-посилання, валідація назв |
 | `src/git.ts` | Виклики git |
+| `src/semantic.ts` | Chunking за розділами `##`, embeddings, векторний індекс LanceDB (ПР № 7) |
+| `src/config.ts` | Шляхи vault та індексу, режим пошуку — спільні для сервера й `reindex` |
+| `src/reindex.ts` | `npm run reindex` — повна перебудова індексу |
+| `eval/*.ts` | Порівняльне тестування keyword vs semantic (`docs/rag-evaluation/`) |
 | `test/vault.test.ts` | Тести на тимчасовому vault із bare-remote |
+| `test/semantic.test.ts` | Chunking, інкрементальна синхронізація, фільтри (фейковий embedder, без моделі) |
 
 ### Інструменти
 
@@ -35,7 +40,7 @@ Node.js 24 (TypeScript виконується напряму, без збірк�
 |------------|-----|------|
 | `ingest_note` | ingestion | Створює чи оновлює нотатку за конвенціями vault, додає нову нотатку в MOC, комітить і пушить |
 | `get_note` | retrieval | Нотатка за назвою чи alias: frontmatter, тіло, backlinks |
-| `search_notes` | retrieval | Пошук за ключовими словами (назва ×5, aliases ×4, теги ×2, тіло ×1), фільтри за типом і тегом |
+| `search_notes` | retrieval | З ПР № 7 — семантичний пошук: N найближчих за змістом розділів нотаток (назва, розділ, текст до 700 символів, косинусна близькість); фільтри за типом і тегом. Сигнатура та сама. Резерв — пошук за ключовими словами (назва ×5, aliases ×4, теги ×2, тіло ×1): `VAULT_SEARCH=keyword` або автоматично, якщо модель чи індекс недоступні |
 
 Вхід `ingest_note`: `title`, `type` (`concept` / `component` / `decision` / `glossary`), `content` (обов'язковий лише для нової нотатки), необов'язкові `aliases`, `tags`, `requirements`, `links`, `properties`, `relations`, `source`, `add_to_moc`.
 
@@ -83,9 +88,13 @@ Node.js 24 (TypeScript виконується напряму, без збірк�
 ```bash
 cd harness/vault-mcp
 npm install
-npm test          # 13 тестів на тимчасовому vault
+npm test          # 24 тести: тимчасовий vault і індекс із фейковим embedder
 npm run typecheck
+npm run reindex   # перебудувати семантичний індекс (необов'язково: сервер оновлює його сам)
+npm run eval      # порівняння retrieval keyword vs semantic → docs/rag-evaluation/
 ```
+
+Семантичний індекс (ПР № 7, ADR-012) — похідний артефакт у `harness/vault-mcp/.index/` (у `.gitignore`): `lancedb/` (~220 КБ на 38 нотаток) і `models/` (модель `Xenova/multilingual-e5-small` int8, ~145 МБ, завантажується один раз). Сервер підключається одразу, а індексує у фоні; перед кожним пошуком повторно вбудовуються лише нотатки, текст яких змінився (хеш), тож правки через `ingest_note` чи `git pull` видно без перезапуску. Змінні: `VAULT_SEARCH` (`semantic` | `keyword`), `VAULT_INDEX_DIR`, `VAULT_EMBED_MODEL`.
 
 У Claude Code: `/mcp` показує статус обох серверів; інструменти мають назви `mcp__vault__*` і `mcp__github__*`.
 
