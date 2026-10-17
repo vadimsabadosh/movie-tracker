@@ -10,7 +10,13 @@
   "scripts": {
     "start": "node src/server.ts",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "lint": "tools/lint/node_modules/.bin/eslint src test",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\" \"*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\" \"*.ts\"",
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm run coverage",
+    "postinstall": "npm --prefix tools/lint install --no-audit --no-fund"
   },
   "dependencies": {
     "@fastify/swagger": "9.9.2",
@@ -22,6 +28,8 @@
   "devDependencies": {
     "@types/better-sqlite3": "9.6.0",
     "@types/node": "26.6.5",
+    "@vitest/coverage-v8": "5.0.5",
+    "prettier": "3.9.8",
     "typescript": "7.0.2",
     "vitest": "5.0.5"
   }

@@ -118,7 +118,11 @@ describe('GET /watches', () => {
     expect((await app.inject('/watches')).json()).toEqual({ items: [], total: 0, limit: 20, offset: 0 });
 
     const second = (
-      await app.inject({ method: 'POST', url: '/movies', payload: { title: 'Arrival', year: 2016, genres: ['Sci-Fi'], director: 'Denis Villeneuve' } })
+      await app.inject({
+        method: 'POST',
+        url: '/movies',
+        payload: { title: 'Arrival', year: 2016, genres: ['Sci-Fi'], director: 'Denis Villeneuve' },
+      })
     ).json().id;
     await mark({ rating: 9, watchedAt: '2026-01-01' });
     await mark({ rating: 8, watchedAt: '2026-05-01' }, second);
@@ -150,7 +154,12 @@ describe('watch history (FR-4)', () => {
   const history = async (qs: string) => {
     const res = await app.inject(`/watches?${qs}`);
     expect(res.statusCode).toBe(200);
-    return res.json() as { items: { movieId: number; rating: number; movie: { title: string; genres: string[] } }[]; total: number; limit: number; offset: number };
+    return res.json() as {
+      items: { movieId: number; rating: number; movie: { title: string; genres: string[] } }[];
+      total: number;
+      limit: number;
+      offset: number;
+    };
   };
   // Every fixture result fits on one default page (6 rows < limit 20), so total must equal the item count.
   // This guards the page and COUNT statements in WatchRepository against drifting apart, for every filter.
@@ -206,7 +215,12 @@ describe('watch history (FR-4)', () => {
   });
 
   it('filters by watch period, bounds inclusive', async () => {
-    expect(await titles('watchedFrom=2026-03-01&watchedTo=2026-05-01')).toEqual(['Arrival', 'eXistenZ', 'Interstellar', 'Тіні забутих предків']);
+    expect(await titles('watchedFrom=2026-03-01&watchedTo=2026-05-01')).toEqual([
+      'Arrival',
+      'eXistenZ',
+      'Interstellar',
+      'Тіні забутих предків',
+    ]);
     expect(await titles('watchedTo=2026-01-01')).toEqual(['Dune']);
     expect(await titles('watchedFrom=2026-07-01')).toEqual(['Мавка']);
   });

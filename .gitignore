@@ -5,3 +5,4 @@ node_modules/
 .claude/guardrails.log
 data/
 harness/vault-mcp/.index/
+coverage/

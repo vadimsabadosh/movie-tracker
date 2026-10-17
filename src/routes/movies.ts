@@ -27,13 +27,22 @@ export async function movieRoutes(app: FastifyInstance, service: MovieService): 
   r.put(
     '/movies/:id',
     {
-      schema: { tags, params: IdParams, body: MovieInput, response: { 200: Movie, 400: ErrorResponse, 404: ErrorResponse, 409: ErrorResponse } },
+      schema: {
+        tags,
+        params: IdParams,
+        body: MovieInput,
+        response: { 200: Movie, 400: ErrorResponse, 404: ErrorResponse, 409: ErrorResponse },
+      },
     },
     (req) => service.update(req.params.id, req.body),
   );
 
-  r.delete('/movies/:id', { schema: { tags, params: IdParams, response: { 204: z.null(), 404: ErrorResponse, 409: ErrorResponse } } }, async (req, reply) => {
-    service.delete(req.params.id);
-    return reply.status(204).send(null);
-  });
+  r.delete(
+    '/movies/:id',
+    { schema: { tags, params: IdParams, response: { 204: z.null(), 404: ErrorResponse, 409: ErrorResponse } } },
+    async (req, reply) => {
+      service.delete(req.params.id);
+      return reply.status(204).send(null);
+    },
+  );
 }

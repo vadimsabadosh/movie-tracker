@@ -10,7 +10,10 @@ export const Rating = z.number().int().min(1).max(10);
 
 export const WatchInput = z.object({
   // Plain calendar date; defaults to today and must not be in the future (checked in WatchService: needs the clock).
-  watchedAt: z.iso.date().refine((d) => d >= MIN_WATCH_DATE, `must be on or after ${MIN_WATCH_DATE}`).optional(),
+  watchedAt: z.iso
+    .date()
+    .refine((d) => d >= MIN_WATCH_DATE, `must be on or after ${MIN_WATCH_DATE}`)
+    .optional(),
   rating: Rating,
   // Empty or whitespace-only note is stored as no note.
   note: z

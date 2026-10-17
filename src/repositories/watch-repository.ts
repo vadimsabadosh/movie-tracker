@@ -78,9 +78,8 @@ export class WatchRepository {
   }
 
   findByMovie(movieId: number): WatchEntry | undefined {
-    const row = this.db
-      .prepare('SELECT movie_id, watched_at, rating, note FROM watches WHERE movie_id = ?')
-      .get(movieId) as WatchRow | undefined;
+    const row = this.db.prepare('SELECT movie_id, watched_at, rating, note FROM watches WHERE movie_id = ?').get(movieId) as
+      WatchRow | undefined;
     return row && toEntry(row);
   }
 
@@ -100,7 +99,10 @@ export class WatchRepository {
       .prepare(HISTORY_PAGE_SQL)
       .all({ ...filters, sort: query.sort, order: query.order, limit: query.limit, offset: query.offset }) as HistoryRow[];
     const { total } = this.db.prepare(HISTORY_COUNT_SQL).get(filters) as { total: number };
-    const genres = genresByMovie(this.db, rows.map((r) => r.movie_id));
+    const genres = genresByMovie(
+      this.db,
+      rows.map((r) => r.movie_id),
+    );
     const items = rows.map((r) => ({
       ...toEntry(r),
       movie: { id: r.movie_id, title: r.title, year: r.year, director: r.director, genres: genres.get(r.movie_id) ?? [] },

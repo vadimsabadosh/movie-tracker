@@ -1,40 +1,17 @@
 // NFR-1: GET /watches (Watch History, FR-4) answers within p95 ≤ 200 ms on 10 000 movies, all watched.
-// The catalog is seeded with SQL straight into the test database (fixture code): 20 000 API calls would be slow.
+// The catalog comes from seedCatalog in helpers.ts (shared with the /profile perf test).
 import { performance } from 'node:perf_hooks';
 import { describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.ts';
 import { openDatabase } from '../src/db/database.ts';
-import { textKey } from '../src/repositories/movie-repository.ts';
+import { CATALOG_GENRES as GENRES, CATALOG_MOVIES as MOVIES, seedCatalog } from './helpers.ts';
 
 const TODAY = '2026-10-16';
-const MOVIES = 10_000;
-const GENRES = 20;
-const DAY_MS = 86_400_000;
-const FIRST_DAY = Date.UTC(2000, 0, 1);
-const DAYS = (Date.UTC(2026, 9, 16) - FIRST_DAY) / DAY_MS;
-
-function seed(db: ReturnType<typeof openDatabase>): void {
-  const genre = db.prepare('INSERT INTO genres (id, name, name_key) VALUES (?, ?, ?)');
-  const movie = db.prepare('INSERT INTO movies (id, title, title_key, year, director) VALUES (?, ?, ?, ?, ?)');
-  const link = db.prepare('INSERT INTO movie_genres (movie_id, genre_id) VALUES (?, ?)');
-  const watch = db.prepare('INSERT INTO watches (movie_id, watched_at, rating, note) VALUES (?, ?, ?, ?)');
-  db.transaction(() => {
-    for (let g = 1; g <= GENRES; g++) genre.run(g, `Жанр ${g}`, textKey(`Жанр ${g}`));
-    for (let i = 1; i <= MOVIES; i++) {
-      const title = `Фільм ${(i * 7919) % MOVIES} ${i}`;
-      movie.run(i, title, textKey(title), 1900 + (i % 127), `Director ${i % 500}`);
-      // Three distinct genres per movie, chosen deterministically.
-      for (const g of [i % GENRES, (i + 7) % GENRES, (i + 13) % GENRES]) link.run(i, g + 1);
-      const day = new Date(FIRST_DAY + ((i * 37) % (DAYS + 1)) * DAY_MS).toISOString().slice(0, 10);
-      watch.run(i, day, (i % 10) + 1, i % 3 === 0 ? `note ${i}` : null);
-    }
-  })();
-}
 
 describe('watch history performance (NFR-1)', () => {
   it('keeps p95 under 200 ms on 10 000 watched movies', async () => {
     const db = openDatabase(':memory:');
-    seed(db);
+    seedCatalog(db);
     const app = await buildApp({ db, today: () => TODAY });
     await app.ready();
 

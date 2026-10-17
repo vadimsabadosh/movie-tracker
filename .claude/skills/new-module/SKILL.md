@@ -66,10 +66,11 @@ Conventions, all checked in step 5:
 ## 4. Verify
 
 ```bash
-npm run typecheck && npm test
+npm run format   # Prettier; asks once, it rewrites files
+npm run check    # typecheck, ESLint, Prettier check, tests + 80 % coverage (NFR-4)
 ```
 
-Both run without asking (A3). Fix the code until they pass. Do not delete or weaken a test to make it pass; if a test seems wrong, say so in the result.
+`npm run check` runs without asking (A3). Fix the code until they pass. Do not delete or weaken a test to make it pass; if a test seems wrong, say so in the result.
 
 ## 5. Check the layers
 
@@ -103,8 +104,8 @@ Requirements: FR-…
 | Method | Path | Success | Errors |
 
 ### Checks
-- typecheck: ok / errors
-- tests: N passed (M new)
+- npm run check: ok / which step failed
+- tests: N passed (M new); coverage: lines % / branches %
 - layer check: clean / hits
 
 ### Follow-ups

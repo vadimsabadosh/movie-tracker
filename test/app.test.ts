@@ -14,10 +14,36 @@ describe('app', () => {
   it('documents the Watch History query parameters on GET /watches (NFR-6)', async () => {
     const app = await testApp();
     const openapi = (await app.inject('/openapi.json')).json();
-    const names = (openapi.paths['/watches'].get.parameters as { name: string; in: string }[]).filter((p) => p.in === 'query').map((p) => p.name);
+    const names = (openapi.paths['/watches'].get.parameters as { name: string; in: string }[])
+      .filter((p) => p.in === 'query')
+      .map((p) => p.name);
     expect(names.sort()).toEqual(
       ['genre', 'yearFrom', 'yearTo', 'ratingMin', 'ratingMax', 'watchedFrom', 'watchedTo', 'sort', 'order', 'limit', 'offset'].sort(),
     );
+  });
+
+  it('documents GET /profile with a 200 response schema (NFR-6)', async () => {
+    const app = await testApp();
+    const openapi = (await app.inject('/openapi.json')).json();
+    const ok = openapi.paths['/profile'].get.responses['200'];
+    expect(ok.content['application/json'].schema.properties).toHaveProperty('genres');
+    expect(ok.content['application/json'].schema.properties).toHaveProperty('directors');
+  });
+
+  it('documents GET /recommendations with limit and a 200 response schema (NFR-6)', async () => {
+    const app = await testApp();
+    const openapi = (await app.inject('/openapi.json')).json();
+    const get = openapi.paths['/recommendations'].get;
+    expect((get.parameters as { name: string; in: string }[]).filter((p) => p.in === 'query').map((p) => p.name)).toEqual(['limit']);
+    const items = get.responses['200'].content['application/json'].schema.properties.items;
+    expect(Object.keys(items.items.properties).sort()).toEqual(['explanation', 'movie', 'reasons', 'score']);
+  });
+
+  it('documents GET /stats with a 200 response schema (NFR-6)', async () => {
+    const app = await testApp();
+    const openapi = (await app.inject('/openapi.json')).json();
+    const schema = openapi.paths['/stats'].get.responses['200'].content['application/json'].schema;
+    expect(Object.keys(schema.properties).sort()).toEqual(['averageRating', 'byGenre', 'byYear', 'watchedCount']);
   });
 
   it('returns 404 in the common error format for unknown routes', async () => {

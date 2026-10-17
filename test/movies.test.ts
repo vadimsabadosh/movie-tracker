@@ -84,7 +84,9 @@ describe('uniqueness of (title, year)', () => {
     await create(dune);
     const other = (await create({ ...dune, year: 1984 })).json();
     expect((await app.inject({ method: 'PUT', url: `/movies/${other.id}`, payload: dune })).statusCode).toBe(409);
-    expect((await app.inject({ method: 'PUT', url: `/movies/${other.id}`, payload: { ...dune, year: 1984, director: 'D. Lynch' } })).statusCode).toBe(200);
+    expect(
+      (await app.inject({ method: 'PUT', url: `/movies/${other.id}`, payload: { ...dune, year: 1984, director: 'D. Lynch' } })).statusCode,
+    ).toBe(200);
   });
 });
 

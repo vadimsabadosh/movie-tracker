@@ -21,7 +21,14 @@ export async function watchRoutes(app: FastifyInstance, service: WatchService): 
 
   r.post(
     '/movies/:id/watch',
-    { schema: { tags, params: IdParams, body: WatchInput, response: { 201: WatchEntry, 400: ErrorResponse, 404: ErrorResponse, 409: ErrorResponse } } },
+    {
+      schema: {
+        tags,
+        params: IdParams,
+        body: WatchInput,
+        response: { 201: WatchEntry, 400: ErrorResponse, 404: ErrorResponse, 409: ErrorResponse },
+      },
+    },
     async (req, reply) => reply.status(201).send(service.mark(req.params.id, req.body)),
   );
 
@@ -31,8 +38,12 @@ export async function watchRoutes(app: FastifyInstance, service: WatchService): 
     (req) => service.update(req.params.id, req.body),
   );
 
-  r.delete('/movies/:id/watch', { schema: { tags, params: IdParams, response: { 204: z.null(), 404: ErrorResponse } } }, async (req, reply) => {
-    service.cancel(req.params.id);
-    return reply.status(204).send(null);
-  });
+  r.delete(
+    '/movies/:id/watch',
+    { schema: { tags, params: IdParams, response: { 204: z.null(), 404: ErrorResponse } } },
+    async (req, reply) => {
+      service.cancel(req.params.id);
+      return reply.status(204).send(null);
+    },
+  );
 }
