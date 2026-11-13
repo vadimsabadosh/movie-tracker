@@ -42,6 +42,18 @@ const chips = (genres) =>
     { class: 'chips' },
     genres.map((g) => el('span', { class: 'chip', text: g })),
   );
+/** Decorative poster (alt=''; the title is next to it). On 404/503 it becomes a same-sized neutral placeholder. */
+const poster = (movieId, cls, width) =>
+  el('img', {
+    class: `poster ${cls}`,
+    src: `/movies/${movieId}/poster`,
+    alt: '',
+    loading: 'lazy',
+    width,
+    height: Math.round(width * 1.5),
+    // Chrome draws a broken-image icon on any failed <img>, so swap it for an empty box of the same class.
+    onerror: (e) => e.target.replaceWith(el('span', { class: `poster ${cls} missing`, 'aria-hidden': 'true' })),
+  });
 const errorLine = () => el('p', { class: 'error', role: 'alert', hidden: true });
 function showError(node, error) {
   node.textContent = error ? error.message : '';
@@ -94,7 +106,8 @@ function catalog() {
                   {},
                   el(
                     'a',
-                    { class: 'row', href: `#/movies/${m.id}` },
+                    { class: 'row with-poster', href: `#/movies/${m.id}` },
+                    poster(m.id, 'thumb', 46),
                     el('span', { class: 'title' }, m.title, el('span', { class: 'muted', text: ` (${m.year})` })),
                     el('span', { class: 'muted', text: m.director }),
                     chips(m.genres),
@@ -184,10 +197,15 @@ function movieDetail(id) {
         el('a', { class: 'back', href: '#/', text: '‹ Catalog' }),
         el(
           'section',
-          { class: 'card' },
-          el('h1', {}, movie.title, el('span', { class: 'muted', text: ` (${movie.year})` })),
-          el('p', { class: 'muted', text: `Directed by ${movie.director}` }),
-          chips(movie.genres),
+          { class: 'card detail-head' },
+          poster(movie.id, 'large', 160),
+          el(
+            'div',
+            { class: 'stack' },
+            el('h1', {}, movie.title, el('span', { class: 'muted', text: ` (${movie.year})` })),
+            el('p', { class: 'muted', text: `Directed by ${movie.director}` }),
+            chips(movie.genres),
+          ),
         ),
         watchForm(movie, watch),
       );
@@ -430,6 +448,7 @@ function dashboard() {
                   el(
                     'li',
                     {},
+                    poster(r.movie.id, 'thumb', 40),
                     el(
                       'div',
                       { class: 'between' },

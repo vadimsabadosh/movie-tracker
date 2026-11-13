@@ -34,4 +34,10 @@ export const MIGRATIONS: readonly string[] = [
   );
   CREATE INDEX watches_watched_at ON watches (watched_at);
   `,
+  // 3. Posters (FR-9): imdb_id links to TMDB; poster_path NULL = not looked up, '' = TMDB has none.
+  `
+  ALTER TABLE movies ADD COLUMN imdb_id TEXT CHECK (imdb_id GLOB 'tt[0-9]*' AND imdb_id NOT GLOB 'tt*[^0-9]*');
+  ALTER TABLE movies ADD COLUMN poster_path TEXT CHECK (poster_path = '' OR poster_path GLOB '/*');
+  CREATE UNIQUE INDEX movies_imdb_id ON movies (imdb_id);
+  `,
 ];

@@ -87,6 +87,24 @@ export class MovieRepository {
     return this.db.prepare('DELETE FROM movies WHERE id = ?').run(id).changes > 0;
   }
 
+  /** Links an IMDb ID to the movie with this title + year; never overwrites, skips an ID already used elsewhere. */
+  attachImdbId(title: string, year: number, imdbId: string): boolean {
+    return (
+      this.db
+        .prepare('UPDATE OR IGNORE movies SET imdb_id = @imdbId WHERE title_key = @key AND year = @year AND imdb_id IS NULL')
+        .run({ imdbId, key: textKey(title), year }).changes > 0
+    );
+  }
+
+  posterInfo(id: number): { imdbId: string | null; posterPath: string | null } | undefined {
+    return this.db.prepare('SELECT imdb_id AS imdbId, poster_path AS posterPath FROM movies WHERE id = @id').get({ id }) as
+      { imdbId: string | null; posterPath: string | null } | undefined;
+  }
+
+  setPosterPath(id: number, path: string): void {
+    this.db.prepare('UPDATE movies SET poster_path = @path WHERE id = @id').run({ id, path });
+  }
+
   private setGenres(movieId: number, names: string[]): void {
     const insertGenre = this.db.prepare('INSERT INTO genres (name, name_key) VALUES (?, ?) ON CONFLICT (name_key) DO NOTHING');
     const genreId = this.db.prepare('SELECT id FROM genres WHERE name_key = ?');

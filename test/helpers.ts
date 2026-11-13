@@ -1,10 +1,10 @@
 // Test app on an in-memory database with all migrations applied, plus the shared NFR-1 catalog fixture.
 import type { FastifyInstance } from 'fastify';
-import { buildApp } from '../src/app.ts';
+import { buildApp, type AppOptions } from '../src/app.ts';
 import { openDatabase } from '../src/db/database.ts';
 import { textKey } from '../src/repositories/movie-repository.ts';
 
-export async function testApp(options: { today?: () => string } = {}): Promise<FastifyInstance> {
+export async function testApp(options: Omit<AppOptions, 'db'> = {}): Promise<FastifyInstance> {
   const app = await buildApp({ db: openDatabase(':memory:'), ...options });
   await app.ready();
   return app;

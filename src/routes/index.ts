@@ -2,6 +2,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { Services } from '../container.ts';
 import { movieRoutes } from './movies.ts';
+import { posterRoutes } from './posters.ts';
 import { profileRoutes } from './profile.ts';
 import { recommendationRoutes } from './recommendations.ts';
 import { statsRoutes } from './stats.ts';
@@ -14,4 +15,5 @@ export async function registerRoutes(app: FastifyInstance, services: Services): 
   await profileRoutes(app, services.profile);
   await recommendationRoutes(app, services.recommendations);
   await statsRoutes(app, services.stats);
+  await posterRoutes(app, services.posters);
 }

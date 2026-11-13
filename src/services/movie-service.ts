@@ -41,6 +41,11 @@ export class MovieService {
     this.repo.delete(id);
   }
 
+  /** Importer only (FR-9): stores the IMDb ID of an existing movie; true if it was newly linked. */
+  attachImdbId(title: string, year: number, imdbId: string): boolean {
+    return this.repo.attachImdbId(title, year, imdbId);
+  }
+
   /** (title, year) is unique, title compared case-insensitively. */
   private assertUnique(input: MovieInput, exceptId?: number): void {
     const other = this.repo.findDuplicate(input.title, input.year, exceptId);

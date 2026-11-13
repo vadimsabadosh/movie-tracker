@@ -14,6 +14,9 @@ export const IMDB_FILES = ['title.ratings', 'title.basics', 'title.crew', 'name.
 
 const NULL = '\\N';
 
+/** A catalog input plus the IMDb ID it came from (FR-9: links the movie to its TMDB poster). */
+export type ImdbMovie = MovieInput & { imdbId: string };
+
 /** Streams the data rows (header skipped) of one gzipped TSV. IMDb TSV has no quoting: split on tabs only. */
 async function* rows(dir: string, stem: string): AsyncGenerator<string[]> {
   const lines = createInterface({ input: createReadStream(path.join(dir, `${stem}.tsv.gz`)).pipe(createGunzip()), crlfDelay: Infinity });
@@ -35,7 +38,7 @@ export function joinDirectors(names: string[], max = 200): string {
   return result === '' ? (names[0] ?? '').slice(0, max) : result;
 }
 
-export async function readImdbMovies(dir: string, minVotes: number): Promise<{ inputs: MovieInput[]; invalid: number }> {
+export async function readImdbMovies(dir: string, minVotes: number): Promise<{ inputs: ImdbMovie[]; invalid: number }> {
   const popular = new Set<string>();
   for await (const [tconst, , votes] of rows(dir, 'title.ratings')) if (Number(votes) >= minVotes) popular.add(tconst!);
 
@@ -53,12 +56,12 @@ export async function readImdbMovies(dir: string, minVotes: number): Promise<{ i
   const names = new Map<string, string>();
   for await (const [nconst, name] of rows(dir, 'name.basics')) if (wanted.has(nconst!)) names.set(nconst!, name!);
 
-  const inputs: MovieInput[] = [];
+  const inputs: ImdbMovie[] = [];
   let invalid = 0;
   for (const [tconst, movie] of basics) {
     const resolved = (directors.get(tconst) ?? []).flatMap((id) => names.get(id) ?? []);
     const parsed =
-      movie.year === NULL || movie.genres === NULL || resolved.length === 0
+      !/^tt\d+$/.test(tconst) || movie.year === NULL || movie.genres === NULL || resolved.length === 0
         ? undefined
         : MovieInput.safeParse({
             title: movie.title,
@@ -66,18 +69,26 @@ export async function readImdbMovies(dir: string, minVotes: number): Promise<{ i
             genres: movie.genres.split(','),
             director: joinDirectors(resolved),
           });
-    if (parsed?.success) inputs.push(parsed.data);
+    if (parsed?.success) inputs.push({ ...parsed.data, imdbId: tconst });
     else invalid++;
   }
   return { inputs, invalid };
 }
 
-/** One transaction for the whole batch; duplicates (same title + year) are counted and skipped. */
-export function importMovies(db: Database.Database, movies: MovieService, inputs: MovieInput[]): { imported: number; duplicates: number } {
+/**
+ * One transaction for the whole batch; duplicates (same title + year) are counted and skipped.
+ * Every row, new or existing, then gets its IMDb ID if it has none yet, so a re-run back-fills old catalogs.
+ */
+export function importMovies(
+  db: Database.Database,
+  movies: MovieService,
+  inputs: ImdbMovie[],
+): { imported: number; duplicates: number; linked: number } {
   let imported = 0;
   let duplicates = 0;
+  let linked = 0;
   db.transaction(() => {
-    for (const input of inputs) {
+    for (const { imdbId, ...input } of inputs) {
       try {
         movies.create(input);
         imported++;
@@ -85,7 +96,8 @@ export function importMovies(db: Database.Database, movies: MovieService, inputs
         if (!(error instanceof ConflictError)) throw error;
         duplicates++;
       }
+      if (movies.attachImdbId(input.title, input.year, imdbId)) linked++;
     }
   })();
-  return { imported, duplicates };
+  return { imported, duplicates, linked };
 }

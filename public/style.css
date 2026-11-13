@@ -289,10 +289,63 @@ button.danger {
   width: fit-content;
 }
 
+/* Posters (FR-9): decorative, 2:3; a failed load keeps the box as a neutral placeholder. */
+.poster {
+  display: block;
+  height: auto;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: 6px;
+  background: var(--line);
+}
+
+.row.with-poster {
+  grid-template-columns: 46px minmax(0, 2fr) minmax(0, 1.3fr) minmax(0, 1fr);
+}
+
+.detail-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.card.detail-head > * + * {
+  margin-top: 0;
+}
+
+.detail-head .poster {
+  width: 160px;
+}
+
+.detail-head .stack {
+  flex: 1 1 240px;
+  gap: 8px;
+}
+
+.recs li {
+  display: list-item flow-root; /* contains the floated thumbnail; overflow: hidden would clip the list numbers */
+}
+
+.recs .poster {
+  float: left;
+  width: 40px;
+  margin-right: 12px;
+}
+
 @media (max-width: 640px) {
   .row {
     grid-template-columns: 1fr;
     gap: 4px;
+  }
+  .row.with-poster {
+    grid-template-columns: 46px 1fr;
+  }
+  .row.with-poster > :not(.poster) {
+    grid-column: 2;
+  }
+  .row.with-poster .poster {
+    grid-row: span 3;
   }
   .top {
     padding: 12px 16px;
@@ -417,4 +470,12 @@ button.danger {
 
 .bar-value {
   font-variant-numeric: tabular-nums;
+}
+
+.attribution {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 16px 32px;
+  color: var(--muted);
+  font-size: 0.8rem;
 }

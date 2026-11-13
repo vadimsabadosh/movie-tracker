@@ -1,5 +1,6 @@
 // Composition root: the only place that wires repositories into services (keeps routes free of DB imports, ADR-001).
 import type Database from 'better-sqlite3';
+import type { PosterSource } from './clients/tmdb.ts';
 import { ProfileScoreRecommender } from './recommendation/profile-score-recommender.ts';
 import type { Recommender } from './recommendation/recommender.ts';
 import { MovieRepository } from './repositories/movie-repository.ts';
@@ -7,6 +8,7 @@ import { ProfileRepository } from './repositories/profile-repository.ts';
 import { StatsRepository } from './repositories/stats-repository.ts';
 import { WatchRepository } from './repositories/watch-repository.ts';
 import { MovieService } from './services/movie-service.ts';
+import { PosterService } from './services/poster-service.ts';
 import { ProfileService } from './services/profile-service.ts';
 import { RecommendationService } from './services/recommendation-service.ts';
 import { StatsService } from './services/stats-service.ts';
@@ -18,13 +20,18 @@ export interface Services {
   profile: ProfileService;
   recommendations: RecommendationService;
   stats: StatsService;
+  posters: PosterService;
 }
 
-/** `recommender` is the swap point for another algorithm (ADR-003); the default is the fixed profile score. */
+/**
+ * `recommender` is the swap point for another algorithm (ADR-003); the default is the fixed profile score.
+ * Without `posterSource` (no TMDB token) only posters already saved are served (FR-9, NFR-7).
+ */
 export function createServices(
   db: Database.Database,
   today?: () => string,
   recommender: Recommender = new ProfileScoreRecommender(),
+  posterSource?: PosterSource,
 ): Services {
   const movies = new MovieRepository(db);
   const watches = new WatchRepository(db);
@@ -35,5 +42,6 @@ export function createServices(
     profile,
     recommendations: new RecommendationService(profile, movies, recommender),
     stats: new StatsService(new StatsRepository(db)),
+    posters: new PosterService(movies, posterSource),
   };
 }

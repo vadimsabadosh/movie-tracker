@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
-import { migrate } from '../src/db/database.ts';
+import { migrate, openDatabase } from '../src/db/database.ts';
+import { MIGRATIONS } from '../src/db/migrations.ts';
 import { testApp } from './helpers.ts';
 
 describe('app', () => {
@@ -9,6 +10,14 @@ describe('app', () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toMatch(/text\/html/);
     expect(res.body).toContain('<main id="app">');
+    expect(res.body).toContain('not endorsed or certified by TMDB');
+  });
+
+  it('documents GET /movies/{id}/poster with the id param and 302/404/503 (NFR-6)', async () => {
+    const openapi = (await (await testApp()).inject('/openapi.json')).json();
+    const get = openapi.paths['/movies/{id}/poster'].get;
+    expect(get.parameters.map((p: { name: string; in: string }) => `${p.in}:${p.name}`)).toEqual(['path:id']);
+    expect(Object.keys(get.responses)).toEqual(expect.arrayContaining(['302', '404', '503']));
   });
 
   it('keeps JSON 404 for unknown paths', async () => {
@@ -75,6 +84,36 @@ describe('migrate', () => {
     migrate(db, migrations);
     migrate(db, migrations);
     expect(db.pragma('user_version', { simple: true })).toBe(2);
+  });
+
+  it('creates the poster columns on a fresh database (migration 3)', () => {
+    const db = openDatabase(':memory:');
+    expect(db.pragma('user_version', { simple: true })).toBe(MIGRATIONS.length);
+    const columns = (db.pragma('table_info(movies)') as { name: string }[]).map((c) => c.name);
+    expect(columns).toEqual(expect.arrayContaining(['imdb_id', 'poster_path']));
+  });
+
+  it('upgrades a v2 database to v3 and keeps its movies', () => {
+    const db = new Database(':memory:');
+    migrate(db, MIGRATIONS.slice(0, 2));
+    db.prepare("INSERT INTO movies (title, title_key, year, director) VALUES ('Old', 'old', 2000, 'D')").run();
+    migrate(db, MIGRATIONS);
+    expect(db.pragma('user_version', { simple: true })).toBe(3);
+    expect(db.prepare('SELECT title, imdb_id, poster_path FROM movies').all()).toEqual([
+      { title: 'Old', imdb_id: null, poster_path: null },
+    ]);
+  });
+
+  it('rejects malformed imdb_id and poster_path values', () => {
+    const db = openDatabase(':memory:');
+    const insert = db.prepare(
+      "INSERT INTO movies (title, title_key, year, director, imdb_id, poster_path) VALUES ('A', 'a', 2000, 'D', @imdbId, @posterPath)",
+    );
+    expect(() => insert.run({ imdbId: 'x1', posterPath: null })).toThrow(/CHECK/);
+    expect(() => insert.run({ imdbId: 'tt1abc', posterPath: null })).toThrow(/CHECK/);
+    expect(() => insert.run({ imdbId: 'tt', posterPath: null })).toThrow(/CHECK/);
+    expect(() => insert.run({ imdbId: 'tt1', posterPath: 'http://evil' })).toThrow(/CHECK/);
+    expect(() => insert.run({ imdbId: 'tt1', posterPath: '' })).not.toThrow();
   });
 
   it('refuses a database newer than the code', () => {

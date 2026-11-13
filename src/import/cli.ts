@@ -30,7 +30,9 @@ for (const stem of IMDB_FILES) {
 const started = Date.now();
 const { inputs, invalid } = await readImdbMovies(CACHE_DIR, minVotes);
 const db = openDatabase(process.env.DATABASE_PATH ?? 'data/movie-tracker.db');
-const { imported, duplicates } = importMovies(db, createServices(db).movies, inputs);
+const { imported, duplicates, linked } = importMovies(db, createServices(db).movies, inputs);
 db.close();
 const seconds = ((Date.now() - started) / 1000).toFixed(1);
-console.log(`read ${inputs.length + invalid} movies (${invalid} invalid) → imported ${imported}, duplicates ${duplicates} in ${seconds} s`);
+console.log(
+  `read ${inputs.length + invalid} movies (${invalid} invalid) → imported ${imported}, duplicates ${duplicates}, linked ${linked} to IMDb in ${seconds} s`,
+);
