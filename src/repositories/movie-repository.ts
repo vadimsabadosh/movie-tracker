@@ -3,7 +3,7 @@
 import type Database from 'better-sqlite3';
 import { textKey } from '../db/database.ts';
 import type { SortOrder } from '../schemas/common.ts';
-import type { CatalogMovie, Movie, MovieInput, MovieListQuery } from '../schemas/movie.ts';
+import type { CastMember, CatalogMovie, Movie, MovieInput, MovieListQuery } from '../schemas/movie.ts';
 
 export { textKey };
 
@@ -181,6 +181,18 @@ export class MovieRepository {
 
   setPosterPath(id: number, path: string): void {
     this.db.prepare('UPDATE movies SET poster_path = @path WHERE id = @id').run({ id, path });
+  }
+
+  detailsInfo(id: number): { imdbId: string | null; overview: string | null; castJson: string | null } | undefined {
+    return this.db.prepare('SELECT imdb_id AS imdbId, overview, cast_json AS castJson FROM movies WHERE id = @id').get({ id }) as
+      { imdbId: string | null; overview: string | null; castJson: string | null } | undefined;
+  }
+
+  /** Saves a finished lookup in one UPDATE: overview '' and cast [] mean TMDB has none (FR-10). */
+  setDetails(id: number, overview: string, cast: CastMember[]): void {
+    this.db
+      .prepare('UPDATE movies SET overview = @overview, cast_json = @castJson WHERE id = @id')
+      .run({ id, overview, castJson: JSON.stringify(cast) });
   }
 
   private setGenres(movieId: number, names: string[]): void {

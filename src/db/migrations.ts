@@ -48,4 +48,9 @@ export const MIGRATIONS: readonly string[] = [
   ALTER TABLE movies ADD COLUMN director_key TEXT NOT NULL DEFAULT '';
   UPDATE movies SET director_key = text_key(director);
   `,
+  // 5. Movie details (FR-10): overview NULL = not looked up, '' = TMDB has none; cast_json = top-billed cast as a JSON array.
+  `
+  ALTER TABLE movies ADD COLUMN overview TEXT;
+  ALTER TABLE movies ADD COLUMN cast_json TEXT CHECK (cast_json IS NULL OR (json_valid(cast_json) AND json_type(cast_json) = 'array'));
+  `,
 ];

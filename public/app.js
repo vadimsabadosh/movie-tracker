@@ -265,23 +265,38 @@ function movieDetail(id) {
     try {
       const movie = await api(`/movies/${id}`);
       const watch = await api(`/movies/${id}/watch`).catch(() => null);
-      root.replaceChildren(
-        el('a', { class: 'back', href: '#/', text: '‹ Catalog' }),
-        el(
-          'section',
-          { class: 'card detail-head' },
-          poster(movie.id, 'large', 160),
-          el(
-            'div',
-            { class: 'stack' },
-            el('h1', {}, movie.title, el('span', { class: 'muted', text: ` (${movie.year})` })),
-            el('p', { class: 'muted', text: `Directed by ${movie.director}` }),
-            imdbText(movie) ? el('p', { class: 'muted', text: imdbText(movie) }) : null,
-            chips(movie.genres),
-          ),
-        ),
-        watchForm(movie, watch),
+      const info = el(
+        'div',
+        { class: 'stack' },
+        el('h1', {}, movie.title, el('span', { class: 'muted', text: ` (${movie.year})` })),
+        el('p', { class: 'muted', text: `Directed by ${movie.director}` }),
+        imdbText(movie) ? el('p', { class: 'muted', text: imdbText(movie) }) : null,
+        chips(movie.genres),
       );
+      const head = el('section', { class: 'card detail-head' }, poster(movie.id, 'large', 160), info);
+      root.replaceChildren(el('a', { class: 'back', href: '#/', text: '‹ Catalog' }), head, watchForm(movie, watch));
+      // TMDB plot and cast (FR-10) fill in after first paint; any failure or empty result adds nothing (NFR-7).
+      api(`/movies/${id}/details`)
+        .then((d) => {
+          if (d.overview) info.append(el('p', { class: 'overview', text: d.overview }));
+          if (d.cast.length) {
+            head.after(
+              el(
+                'section',
+                { class: 'card stack cast' },
+                el('h2', { text: 'Cast' }),
+                el(
+                  'ul',
+                  {},
+                  d.cast.map((c) =>
+                    el('li', {}, el('span', { text: c.name }), c.character ? el('span', { class: 'muted', text: ` as ${c.character}` }) : null),
+                  ),
+                ),
+              ),
+            );
+          }
+        })
+        .catch(() => {});
     } catch (e) {
       root.replaceChildren(
         el('a', { class: 'back', href: '#/', text: '‹ Catalog' }),

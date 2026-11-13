@@ -57,3 +57,11 @@ export const MoviePage = page(CatalogMovie);
 
 /** Genre names used by at least one movie (feeds the genre dropdowns). */
 export const GenreList = z.object({ items: z.array(z.string()) });
+
+/** One top-billed actor from TMDB (FR-10); character is '' when TMDB has none. */
+export const CastMember = z.object({ name: z.string(), character: z.string() });
+export type CastMember = z.infer<typeof CastMember>;
+
+/** GET /movies/:id/details (FR-10): overview null when TMDB has none; cast in TMDB billing order. */
+export const MovieDetails = z.object({ overview: z.string().nullable(), cast: z.array(CastMember) });
+export type MovieDetails = z.infer<typeof MovieDetails>;

@@ -20,6 +20,15 @@ describe('app', () => {
     expect(Object.keys(get.responses)).toEqual(expect.arrayContaining(['302', '404', '503']));
   });
 
+  it('documents GET /movies/{id}/details with the id param and 200/400/404/503 (FR-10, NFR-6)', async () => {
+    const openapi = (await (await testApp()).inject('/openapi.json')).json();
+    const get = openapi.paths['/movies/{id}/details'].get;
+    expect(get.parameters.map((p: { name: string; in: string }) => `${p.in}:${p.name}`)).toEqual(['path:id']);
+    expect(Object.keys(get.responses)).toEqual(expect.arrayContaining(['200', '400', '404', '503']));
+    const schema = get.responses['200'].content['application/json'].schema;
+    expect(Object.keys(schema.properties)).toEqual(['overview', 'cast']);
+  });
+
   it('keeps JSON 404 for unknown paths', async () => {
     const res = await (await testApp()).inject('/nope');
     expect(res.statusCode).toBe(404);
@@ -158,6 +167,24 @@ describe('migrate', () => {
     expect(() => insert.run({ t: 'c', rating: 5, votes: -1 })).toThrow(/CHECK/);
     expect(() => insert.run({ t: 'd', rating: 1, votes: 0 })).not.toThrow();
     expect(() => insert.run({ t: 'e', rating: 10, votes: 0 })).not.toThrow();
+  });
+
+  it('upgrades a v4 database to v5 with empty details (migration 5)', () => {
+    const db = new Database(':memory:');
+    migrate(db, MIGRATIONS.slice(0, 4));
+    db.prepare("INSERT INTO movies (title, title_key, year, director) VALUES ('Old', 'old', 2000, 'D')").run();
+    migrate(db, MIGRATIONS);
+    expect(db.pragma('user_version', { simple: true })).toBe(MIGRATIONS.length);
+    expect(db.prepare('SELECT title, overview, cast_json FROM movies').all()).toEqual([{ title: 'Old', overview: null, cast_json: null }]);
+  });
+
+  it('accepts only a JSON array in cast_json', () => {
+    const db = openDatabase(':memory:');
+    db.prepare("INSERT INTO movies (title, title_key, year, director) VALUES ('A', 'a', 2000, 'D')").run();
+    const set = db.prepare('UPDATE movies SET cast_json = @castJson');
+    expect(() => set.run({ castJson: 'nope' })).toThrow(/CHECK/);
+    expect(() => set.run({ castJson: '{}' })).toThrow(/CHECK/);
+    expect(() => set.run({ castJson: '[]' })).not.toThrow();
   });
 
   it('refuses a database newer than the code', () => {

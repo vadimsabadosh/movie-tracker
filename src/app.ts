@@ -5,7 +5,7 @@ import swagger from '@fastify/swagger';
 import type Database from 'better-sqlite3';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { jsonSchemaTransform, serializerCompiler, validatorCompiler, type ZodTypeProvider } from 'fastify-type-provider-zod';
-import type { PosterSource } from './clients/tmdb.ts';
+import type { DetailsSource, PosterSource } from './clients/tmdb.ts';
 import { createServices } from './container.ts';
 import { errorHandler } from './errors/errors.ts';
 import { registerRoutes } from './routes/index.ts';
@@ -17,9 +17,11 @@ export interface AppOptions {
   today?: () => string;
   /** TMDB poster lookup (FR-9); omitted means no TMDB. */
   posterSource?: PosterSource;
+  /** TMDB plot and cast lookup (FR-10); omitted means no TMDB. */
+  detailsSource?: DetailsSource;
 }
 
-export async function buildApp({ db, logger = false, today, posterSource }: AppOptions): Promise<FastifyInstance> {
+export async function buildApp({ db, logger = false, today, posterSource, detailsSource }: AppOptions): Promise<FastifyInstance> {
   const app = Fastify({ logger }).withTypeProvider<ZodTypeProvider>();
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
@@ -35,6 +37,6 @@ export async function buildApp({ db, logger = false, today, posterSource }: AppO
   app.get('/openapi.json', { schema: { hide: true } }, () => app.swagger());
   // Web UI (no build step): public/ at /, resolved from this file so tests and `npm start` agree.
   await app.register(fastifyStatic, { root: fileURLToPath(new URL('../public/', import.meta.url)), prefix: '/' });
-  await registerRoutes(app, createServices(db, today, undefined, posterSource));
+  await registerRoutes(app, createServices(db, today, undefined, posterSource, detailsSource));
   return app;
 }
