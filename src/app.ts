@@ -1,4 +1,6 @@
 // Fastify application factory: wires schemas, error handling and routes (ADR-001 layers).
+import { fileURLToPath } from 'node:url';
+import fastifyStatic from '@fastify/static';
 import swagger from '@fastify/swagger';
 import type Database from 'better-sqlite3';
 import Fastify, { type FastifyInstance } from 'fastify';
@@ -28,6 +30,8 @@ export async function buildApp({ db, logger = false, today }: AppOptions): Promi
     transform: jsonSchemaTransform,
   });
   app.get('/openapi.json', { schema: { hide: true } }, () => app.swagger());
+  // Web UI (no build step): public/ at /, resolved from this file so tests and `npm start` agree.
+  await app.register(fastifyStatic, { root: fileURLToPath(new URL('../public/', import.meta.url)), prefix: '/' });
   await registerRoutes(app, createServices(db, today));
   return app;
 }

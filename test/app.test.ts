@@ -4,6 +4,19 @@ import { migrate } from '../src/db/database.ts';
 import { testApp } from './helpers.ts';
 
 describe('app', () => {
+  it('serves the web UI at /', async () => {
+    const res = await (await testApp()).inject('/');
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toMatch(/text\/html/);
+    expect(res.body).toContain('<main id="app">');
+  });
+
+  it('keeps JSON 404 for unknown paths', async () => {
+    const res = await (await testApp()).inject('/nope');
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe('NOT_FOUND');
+  });
+
   it('answers /health and serves the OpenAPI document', async () => {
     const app = await testApp();
     expect((await app.inject('/health')).json()).toEqual({ status: 'ok' });
