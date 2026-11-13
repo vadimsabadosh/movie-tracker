@@ -64,6 +64,12 @@ describe('block (deny)', () => {
     expectDecision(bash('echo $GITHUB_PAT'), 'deny', 'B5');
     expectDecision(bash('printenv'), 'deny', 'B5');
     expectDecision(bash('git add .env'), 'deny', 'B5');
+    // Any *_TOKEN, not only the GitHub ones (docs/guardrails.md B5).
+    expectDecision(bash('echo $TMDB_ACCESS_TOKEN'), 'deny', 'B5');
+    // Heredoc bodies are data, but an unquoted one expands the secret into the file it writes.
+    expectDecision(bash('cat > src/server.ts <<EOF\nconst t = "$TMDB_ACCESS_TOKEN";\nEOF'), 'deny', 'B5');
+    expectDecision(bash("cat > src/server.ts <<'EOF'\nconst t = process.env.TMDB_ACCESS_TOKEN;\nEOF"), 'deny', 'B5');
+    expectDecision(bash("git commit -F - <<'EOF'\nRead the API_KEY from env\nEOF"), 'deny', 'B5');
   });
 
   it('B6 changing guardrails or bypassing hooks', () => {
@@ -113,16 +119,24 @@ describe('warn (ask)', () => {
   it('W3 database schema and migrations', () => {
     expectDecision(tool('Write', { file_path: `${PROJECT}/src/db/schema.sql`, content: '' }), 'ask', 'W3');
     expectDecision(tool('Edit', { file_path: 'migrations/002_ratings.ts', old_string: 'a', new_string: 'b' }), 'ask', 'W3');
+    // Bash writes count too, not only Edit/Write.
+    expectDecision(bash("cat > src/db/migrations.ts <<'EOF'\nexport const MIGRATIONS = [];\nEOF"), 'ask', 'W3');
+    expectDecision(bash('echo "-- x" >> migrations/003.sql'), 'ask', 'W3');
+    expectDecision(bash("sed -i '' 's/a/b/' src/db/migrations.ts"), 'ask', 'W3');
+    expectDecision(bash('cp /tmp/m.ts src/db/migrations.ts'), 'ask', 'W3');
+    expectDecision(bash('cd src/db && tee migrations.ts < /tmp/m.ts'), 'ask', 'W3');
   });
 
   it('W4 configuration', () => {
     expectDecision(tool('Edit', { file_path: 'package.json', old_string: 'a', new_string: 'b' }), 'ask', 'W4');
     expectDecision(tool('Write', { file_path: '.github/workflows/ci.yml', content: '' }), 'ask', 'W4');
     expectDecision(tool('Edit', { file_path: '.mcp.json', old_string: 'a', new_string: 'b' }), 'ask', 'W4');
+    expectDecision(bash('echo {} > package.json'), 'ask', 'W4');
   });
 
   it('W5 recommender core', () => {
     expectDecision(tool('Edit', { file_path: 'src/recommendation/score.ts', old_string: 'a', new_string: 'b' }), 'ask', 'W5');
+    expectDecision(bash('cp /tmp/x.ts src/recommendation/score.ts'), 'ask', 'W5');
   });
 
   it('W6 writing to the vault through MCP', () => {

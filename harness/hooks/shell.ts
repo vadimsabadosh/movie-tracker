@@ -18,6 +18,8 @@ export interface ParsedCommand {
   segments: Segment[];
   /** Command/process substitution, subshells or an unterminated heredoc — not fully analysed. */
   opaque: boolean;
+  /** Heredoc bodies: data, not commands, but they can still carry secrets (B5). */
+  heredocBodies: string[];
 }
 
 const OPERATORS = ['&&', '||', ';;', '|&', ';', '|', '&', '\n', '(', ')'];
@@ -35,6 +37,7 @@ export function parseCommand(text: string): ParsedCommand {
   let pendingRedirect = false;
   /** Heredoc delimiters whose bodies start after the next newline. */
   const heredocs: string[] = [];
+  const heredocBodies: string[] = [];
 
   const endWord = () => {
     if (!hasWord) return;
@@ -68,6 +71,7 @@ export function parseCommand(text: string): ParsedCommand {
         const nl = text.indexOf('\n', lineStart);
         const lineEnd = nl === -1 ? text.length : nl;
         if (text.slice(lineStart, lineEnd).replace(/^\t+/, '') === delim) {
+          heredocBodies.push(text.slice(pos, lineStart));
           found = lineEnd;
           break;
         }
@@ -163,7 +167,7 @@ export function parseCommand(text: string): ParsedCommand {
   }
   endSegment();
   if (heredocs.length) opaque = true; // heredoc without a body line
-  return { segments, opaque };
+  return { segments, opaque, heredocBodies };
 }
 
 /** `git -C dir -c k=v commit ...` → { dir, sub: 'commit', args: [...] }. */
