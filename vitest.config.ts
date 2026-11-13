@@ -8,8 +8,8 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
-      // Entry point: starts a real server, exercised by `npm start`, not by tests.
-      exclude: ['src/server.ts'],
+      // Entry points: a real server (`npm start`) and the IMDb download/import (`npm run import:imdb`), not unit-tested.
+      exclude: ['src/server.ts', 'src/import/cli.ts'],
       thresholds: { lines: 80, functions: 80, branches: 80, statements: 80 },
     },
   },

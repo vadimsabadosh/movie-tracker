@@ -16,7 +16,8 @@
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\" \"*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\" \"*.ts\"",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm run coverage",
-    "postinstall": "npm --prefix tools/lint install --no-audit --no-fund"
+    "postinstall": "npm --prefix tools/lint install --no-audit --no-fund",
+    "import:imdb": "node src/import/cli.ts"
   },
   "dependencies": {
     "@fastify/swagger": "9.9.2",
