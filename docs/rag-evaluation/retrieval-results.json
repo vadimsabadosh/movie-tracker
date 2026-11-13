@@ -2,16 +2,16 @@
   "k": 5,
   "summary": {
     "keyword": {
-      "hitAt1": 6,
-      "hitAtK": 8,
-      "meanRecallAtK": 0.77,
-      "mrr": 0.67
+      "hitAt1": 4,
+      "hitAtK": 7,
+      "meanRecallAtK": 0.67,
+      "mrr": 0.53
     },
     "semantic": {
-      "hitAt1": 10,
+      "hitAt1": 8,
       "hitAtK": 10,
       "meanRecallAtK": 0.92,
-      "mrr": 1
+      "mrr": 0.88
     }
   },
   "results": {
@@ -19,23 +19,23 @@
       {
         "id": "Q1",
         "top": [
+          "ADR-013 Preference Profile Contract",
+          "ADR-015 Viewing Statistics Contract",
+          "ADR-014 Recommendation Score Formula",
           "ADR-010 Watch History Query Contract",
-          "Preference Profile",
-          "Rating",
-          "ADR-004 Zod as Single Source of Truth",
-          "MOC - movie-tracker"
+          "Preference Profile"
         ],
-        "firstHit": 3,
-        "recall": 1
+        "firstHit": 0,
+        "recall": 0
       },
       {
         "id": "Q2",
         "top": [
           "ADR-009 One Watch Entry Per Movie Kept on Delete",
+          "ADR-015 Viewing Statistics Contract",
+          "ADR-014 Recommendation Score Formula",
           "ADR-010 Watch History Query Contract",
-          "Movie",
-          "Vault MCP Server",
-          "ADR-011 Sort Selection by Bound Parameters"
+          "Movie"
         ],
         "firstHit": 1,
         "recall": 1
@@ -45,9 +45,9 @@
         "top": [
           "ADR-008 Unicode Case-Insensitive Keys in App Layer",
           "ADR-002 SQLite with better-sqlite3",
-          "Database",
-          "ADR-004 Zod as Single Source of Truth",
-          "MOC - movie-tracker"
+          "ADR-013 Preference Profile Contract",
+          "ADR-012 Semantic Search with Embedded LanceDB Index",
+          "Database"
         ],
         "firstHit": 1,
         "recall": 1
@@ -55,13 +55,13 @@
       {
         "id": "Q4",
         "top": [
+          "ADR-015 Viewing Statistics Contract",
           "ADR-009 One Watch Entry Per Movie Kept on Delete",
           "ADR-010 Watch History Query Contract",
           "ADR-011 Sort Selection by Bound Parameters",
-          "Watch History",
-          "ADR-008 Unicode Case-Insensitive Keys in App Layer"
+          "ADR-013 Preference Profile Contract"
         ],
-        "firstHit": 3,
+        "firstHit": 4,
         "recall": 1
       },
       {
@@ -80,10 +80,10 @@
         "id": "Q6",
         "top": [
           "ADR-010 Watch History Query Contract",
+          "ADR-015 Viewing Statistics Contract",
+          "ADR-013 Preference Profile Contract",
           "Error Handling",
-          "ADR-011 Sort Selection by Bound Parameters",
-          "Rating",
-          "ADR-009 One Watch Entry Per Movie Kept on Delete"
+          "ADR-011 Sort Selection by Bound Parameters"
         ],
         "firstHit": 1,
         "recall": 1
@@ -91,11 +91,11 @@
       {
         "id": "Q7",
         "top": [
+          "ADR-015 Viewing Statistics Contract",
           "ADR-008 Unicode Case-Insensitive Keys in App Layer",
-          "ADR-010 Watch History Query Contract",
-          "ADR-002 SQLite with better-sqlite3",
-          "ADR-011 Sort Selection by Bound Parameters",
-          "MOC - movie-tracker"
+          "ADR-012 Semantic Search with Embedded LanceDB Index",
+          "ADR-013 Preference Profile Contract",
+          "ADR-010 Watch History Query Contract"
         ],
         "firstHit": 0,
         "recall": 0
@@ -103,23 +103,23 @@
       {
         "id": "Q8",
         "top": [
+          "ADR-014 Recommendation Score Formula",
           "ADR-003 Deterministic Recommender Behind Interface",
           "Recommendation",
           "Recommendation Score",
-          "Error Handling",
-          "Recommender"
+          "Error Handling"
         ],
-        "firstHit": 1,
+        "firstHit": 2,
         "recall": 1
       },
       {
         "id": "Q9",
         "top": [
+          "ADR-013 Preference Profile Contract",
+          "ADR-012 Semantic Search with Embedded LanceDB Index",
+          "ADR-014 Recommendation Score Formula",
           "Agent Harness",
-          "Database",
-          "Director",
-          "MOC - movie-tracker",
-          "ADR-008 Unicode Case-Insensitive Keys in App Layer"
+          "Database"
         ],
         "firstHit": 0,
         "recall": 0
@@ -127,14 +127,14 @@
       {
         "id": "Q10",
         "top": [
+          "ADR-015 Viewing Statistics Contract",
           "Viewing Statistics",
-          "ADR-006 Read-Only GitHub MCP as Data Source",
-          "ADR-009 One Watch Entry Per Movie Kept on Delete",
           "MOC - movie-tracker",
-          "ADR-007 Typed Relations in Frontmatter"
+          "ADR-006 Read-Only GitHub MCP as Data Source",
+          "ADR-009 One Watch Entry Per Movie Kept on Delete"
         ],
-        "firstHit": 1,
-        "recall": 0.6666666666666666
+        "firstHit": 2,
+        "recall": 0.67
       }
     ],
     "semantic": [
@@ -144,8 +144,8 @@
           "Rating",
           "Preference Profile",
           "Viewing Statistics",
-          "Genre",
-          "ADR-010 Watch History Query Contract"
+          "ADR-013 Preference Profile Contract",
+          "Genre"
         ],
         "firstHit": 1,
         "recall": 1
@@ -155,9 +155,9 @@
         "top": [
           "ADR-009 One Watch Entry Per Movie Kept on Delete",
           "Movie",
-          "ADR-010 Watch History Query Contract",
-          "ADR-011 Sort Selection by Bound Parameters",
-          "Watch Entry"
+          "ADR-014 Recommendation Score Formula",
+          "ADR-013 Preference Profile Contract",
+          "ADR-010 Watch History Query Contract"
         ],
         "firstHit": 1,
         "recall": 1
@@ -169,7 +169,7 @@
           "MOC - movie-tracker",
           "ADR-002 SQLite with better-sqlite3",
           "Database",
-          "ADR-010 Watch History Query Contract"
+          "ADR-013 Preference Profile Contract"
         ],
         "firstHit": 1,
         "recall": 1
@@ -179,9 +179,9 @@
         "top": [
           "ADR-011 Sort Selection by Bound Parameters",
           "ADR-010 Watch History Query Contract",
+          "ADR-015 Viewing Statistics Contract",
           "Watch History",
-          "ADR-009 One Watch Entry Per Movie Kept on Delete",
-          "Viewing Statistics"
+          "ADR-013 Preference Profile Contract"
         ],
         "firstHit": 1,
         "recall": 1
@@ -202,10 +202,10 @@
         "id": "Q6",
         "top": [
           "Error Handling",
-          "Rating",
-          "ADR-010 Watch History Query Contract",
           "Routes Layer",
-          "MOC - movie-tracker"
+          "Rating",
+          "MOC - movie-tracker",
+          "ADR-010 Watch History Query Contract"
         ],
         "firstHit": 1,
         "recall": 1
@@ -214,10 +214,10 @@
         "id": "Q7",
         "top": [
           "Preference Profile",
-          "Viewing Statistics",
           "MOC - movie-tracker",
-          "Repositories Layer",
-          "Database"
+          "Viewing Statistics",
+          "Database",
+          "ADR-015 Viewing Statistics Contract"
         ],
         "firstHit": 1,
         "recall": 1
@@ -225,38 +225,38 @@
       {
         "id": "Q8",
         "top": [
+          "ADR-014 Recommendation Score Formula",
+          "MOC - movie-tracker",
           "ADR-003 Deterministic Recommender Behind Interface",
           "Recommendation Score",
-          "MOC - movie-tracker",
-          "ADR-010 Watch History Query Contract",
-          "Viewing Statistics"
+          "ADR-013 Preference Profile Contract"
         ],
-        "firstHit": 1,
+        "firstHit": 3,
         "recall": 1
       },
       {
         "id": "Q9",
         "top": [
-          "ADR-005 Separate Vault Repository with MCP Access",
           "MOC - movie-tracker",
+          "ADR-005 Separate Vault Repository with MCP Access",
+          "ADR-012 Semantic Search with Embedded LanceDB Index",
           "ADR-010 Watch History Query Contract",
-          "Database",
-          "ADR-009 One Watch Entry Per Movie Kept on Delete"
+          "Database"
         ],
-        "firstHit": 1,
+        "firstHit": 2,
         "recall": 0.5
       },
       {
         "id": "Q10",
         "top": [
           "Viewing Statistics",
+          "ADR-015 Viewing Statistics Contract",
           "Watch Entry",
-          "ADR-009 One Watch Entry Per Movie Kept on Delete",
-          "Watch History",
-          "Genre"
+          "MOC - movie-tracker",
+          "ADR-009 One Watch Entry Per Movie Kept on Delete"
         ],
         "firstHit": 1,
-        "recall": 0.6666666666666666
+        "recall": 0.67
       }
     ]
   }
