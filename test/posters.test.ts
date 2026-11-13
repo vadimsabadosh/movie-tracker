@@ -44,7 +44,10 @@ describe('GET /movies/:id/poster', () => {
   it('404 without asking TMDB when the movie has no IMDb ID', async () => {
     const source = fake(async () => '/a.jpg');
     const { app, id } = await setup({ source, imdbId: null });
-    expect((await app.inject(`/movies/${id}/poster`)).statusCode).toBe(404);
+    const res = await app.inject(`/movies/${id}/poster`);
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe('POSTER_NOT_LINKED');
+    expect(res.json().error.message).toMatch(/no IMDb ID.*npm run import:imdb/);
     expect(source.findPosterPath).not.toHaveBeenCalled();
   });
 
@@ -64,8 +67,12 @@ describe('GET /movies/:id/poster', () => {
   it('404 when TMDB has no poster, and remembers it', async () => {
     const source = fake(async () => null);
     const { app, id, saved } = await setup({ source });
-    expect((await app.inject(`/movies/${id}/poster`)).statusCode).toBe(404);
-    expect((await app.inject(`/movies/${id}/poster`)).statusCode).toBe(404);
+    for (let i = 0; i < 2; i++) {
+      const res = await app.inject(`/movies/${id}/poster`);
+      expect(res.statusCode).toBe(404);
+      expect(res.json().error.code).toBe('POSTER_NOT_FOUND');
+      expect(res.json().error.message).toMatch(/TMDB has no poster.*tt1/);
+    }
     expect(source.findPosterPath).toHaveBeenCalledTimes(1);
     expect(saved()).toBe('');
   });

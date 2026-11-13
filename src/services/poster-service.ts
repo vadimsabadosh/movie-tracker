@@ -27,7 +27,11 @@ export class PosterService {
       }
       this.repo.setPosterPath(id, path);
     }
-    if (!path) throw new NotFoundError('Poster of movie', id);
+    // Two distinct 404s, so "never linked" (fixable by the importer) is not mistaken for "TMDB has none".
+    if (info.imdbId === null && !path) {
+      throw new AppError(404, 'POSTER_NOT_LINKED', `Movie ${id} has no IMDb ID; run npm run import:imdb to link imported movies`);
+    }
+    if (!path) throw new AppError(404, 'POSTER_NOT_FOUND', `TMDB has no poster for movie ${id} (${info.imdbId})`);
     return TMDB_IMAGE_BASE + path;
   }
 }
