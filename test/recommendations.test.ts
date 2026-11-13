@@ -120,7 +120,9 @@ describe('GET /recommendations (FR-7)', () => {
 
     it('returns the movie as GET /movies/:id does', async () => {
       const top = byId(await recommendations(), 10);
-      expect(top.movie).toEqual((await app.inject('/movies/10')).json());
+      // GET /movies/:id adds the catalog fields (imdbRating, imdbVotes, watched); the recommendation keeps the plain Movie.
+      expect((await app.inject('/movies/10')).json()).toMatchObject(top.movie);
+      expect(Object.keys(top.movie).sort()).toEqual(['director', 'genres', 'id', 'title', 'year']);
     });
 
     it('applies the limit after ranking', async () => {
@@ -193,7 +195,9 @@ describe('Recommender swap (ADR-003)', () => {
     expect(result.items).toBe(canned);
     expect(calls).toHaveLength(1);
     expect(calls[0]!.profile).toEqual(services.profile.get());
-    expect(calls[0]!.candidates).toEqual([b, a]);
+    // create() returns the catalog shape; the recommender gets plain Movies (listUnwatched).
+    const plain = ({ imdbRating: _r, imdbVotes: _v, watched: _w, ...movie }: typeof a) => movie;
+    expect(calls[0]!.candidates).toEqual([b, a].map(plain));
     expect(calls[0]!.limit).toBe(5);
   });
 });

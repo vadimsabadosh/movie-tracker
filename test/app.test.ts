@@ -44,6 +44,21 @@ describe('app', () => {
     );
   });
 
+  it('documents the catalog query parameters and item fields on GET /movies (NFR-6)', async () => {
+    const openapi = (await (await testApp()).inject('/openapi.json')).json();
+    const get = openapi.paths['/movies'].get;
+    const names = (get.parameters as { name: string; in: string }[]).filter((p) => p.in === 'query').map((p) => p.name);
+    expect(names.sort()).toEqual(['q', 'genre', 'yearFrom', 'yearTo', 'director', 'watched', 'sort', 'order', 'limit', 'offset'].sort());
+    const item = get.responses['200'].content['application/json'].schema.properties.items.items;
+    expect(Object.keys(item.properties)).toEqual(expect.arrayContaining(['imdbRating', 'imdbVotes', 'watched']));
+  });
+
+  it('documents GET /genres with a list of names (NFR-6)', async () => {
+    const openapi = (await (await testApp()).inject('/openapi.json')).json();
+    const schema = openapi.paths['/genres'].get.responses['200'].content['application/json'].schema;
+    expect(schema.properties.items).toMatchObject({ type: 'array', items: { type: 'string' } });
+  });
+
   it('documents GET /profile with a 200 response schema (NFR-6)', async () => {
     const app = await testApp();
     const openapi = (await app.inject('/openapi.json')).json();
@@ -98,7 +113,7 @@ describe('migrate', () => {
     migrate(db, MIGRATIONS.slice(0, 2));
     db.prepare("INSERT INTO movies (title, title_key, year, director) VALUES ('Old', 'old', 2000, 'D')").run();
     migrate(db, MIGRATIONS);
-    expect(db.pragma('user_version', { simple: true })).toBe(3);
+    expect(db.pragma('user_version', { simple: true })).toBe(MIGRATIONS.length);
     expect(db.prepare('SELECT title, imdb_id, poster_path FROM movies').all()).toEqual([
       { title: 'Old', imdb_id: null, poster_path: null },
     ]);
@@ -114,6 +129,35 @@ describe('migrate', () => {
     expect(() => insert.run({ imdbId: 'tt', posterPath: null })).toThrow(/CHECK/);
     expect(() => insert.run({ imdbId: 'tt1', posterPath: 'http://evil' })).toThrow(/CHECK/);
     expect(() => insert.run({ imdbId: 'tt1', posterPath: '' })).not.toThrow();
+  });
+
+  it('creates the IMDb and director_key columns on a fresh database (migration 4)', () => {
+    const db = openDatabase(':memory:');
+    const columns = (db.pragma('table_info(movies)') as { name: string }[]).map((c) => c.name);
+    expect(columns).toEqual(expect.arrayContaining(['imdb_rating', 'imdb_votes', 'director_key']));
+  });
+
+  it('upgrades a v3 database to v4 and back-fills director_key (Cyrillic folded)', () => {
+    const db = new Database(':memory:');
+    migrate(db, MIGRATIONS.slice(0, 3));
+    db.prepare("INSERT INTO movies (title, title_key, year, director) VALUES ('Тіні', 'тіні', 1965, 'Сергій Параджанов')").run();
+    migrate(db, MIGRATIONS);
+    expect(db.pragma('user_version', { simple: true })).toBe(MIGRATIONS.length);
+    expect(db.prepare('SELECT director_key, imdb_rating, imdb_votes FROM movies').all()).toEqual([
+      { director_key: 'сергій параджанов', imdb_rating: null, imdb_votes: null },
+    ]);
+  });
+
+  it('rejects out-of-range IMDb rating and votes', () => {
+    const db = openDatabase(':memory:');
+    const insert = db.prepare(
+      "INSERT INTO movies (title, title_key, year, director, imdb_rating, imdb_votes) VALUES (@t, @t, 2000, 'D', @rating, @votes)",
+    );
+    expect(() => insert.run({ t: 'a', rating: 0.5, votes: 1 })).toThrow(/CHECK/);
+    expect(() => insert.run({ t: 'b', rating: 10.5, votes: 1 })).toThrow(/CHECK/);
+    expect(() => insert.run({ t: 'c', rating: 5, votes: -1 })).toThrow(/CHECK/);
+    expect(() => insert.run({ t: 'd', rating: 1, votes: 0 })).not.toThrow();
+    expect(() => insert.run({ t: 'e', rating: 10, votes: 0 })).not.toThrow();
   });
 
   it('refuses a database newer than the code', () => {

@@ -1,6 +1,7 @@
 // Watch entries: one row per watched movie (ADR-001, NFR-3: parameters only).
 import type Database from 'better-sqlite3';
-import type { SortOrder, WatchEntry, WatchHistoryItem, WatchListQuery } from '../schemas/watch.ts';
+import type { SortOrder } from '../schemas/common.ts';
+import type { WatchEntry, WatchHistoryItem, WatchListQuery } from '../schemas/watch.ts';
 import { genresByMovie, textKey } from './movie-repository.ts';
 
 interface WatchRow {

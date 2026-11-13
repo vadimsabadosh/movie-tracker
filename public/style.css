@@ -155,6 +155,11 @@ textarea {
   background: var(--bg);
 }
 
+input,
+select {
+  height: 2.4rem; /* native selects render shorter than inputs with the same padding */
+}
+
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
@@ -254,6 +259,23 @@ button.danger {
 }
 
 .title {
+  font-weight: 600;
+}
+
+/* Catalog row extras inside .title, so the row keeps 3 non-poster children (640 px grid-row: span 3). */
+.imdb {
+  display: block;
+  font-weight: 400;
+  font-size: 0.85rem;
+}
+
+.seen {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.75rem;
   font-weight: 600;
 }
 
@@ -358,11 +380,15 @@ button.danger {
 
 .filters {
   margin-bottom: 16px;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); /* fits "Popularity (votes)" */
+}
+
+.filters > * + * {
+  margin-top: 0; /* the grid gap spaces fields; .card's margin would push every field but the first down */
 }
 
 .history-row {
-  grid-template-columns: 40px minmax(0, 1fr) auto;
+  grid-template-columns: 40px 32px minmax(0, 1fr) auto; /* poster, rating badge, title, date */
 }
 
 .rating {

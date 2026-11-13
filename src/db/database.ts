@@ -13,7 +13,12 @@ export function openDatabase(file: string, migrations: readonly string[] = MIGRA
   return db;
 }
 
+/** Lowercased key for case-insensitive text (ADR-008): SQLite NOCASE/LIKE fold ASCII only. */
+export const textKey = (text: string) => text.trim().toLocaleLowerCase('uk');
+
 export function migrate(db: Database.Database, migrations: readonly string[]): void {
+  // Here, not in openDatabase: tests call migrate() on a bare connection. Migration 4 back-fills with it.
+  db.function('text_key', { deterministic: true }, (s) => textKey(String(s)));
   const applied = db.pragma('user_version', { simple: true }) as number;
   if (applied > migrations.length) {
     throw new Error(`database is at schema version ${applied}, code knows only ${migrations.length}`);

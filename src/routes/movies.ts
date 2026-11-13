@@ -1,9 +1,10 @@
-// /movies endpoints (FR-1 CRUD, FR-5 search via ?q=): validate, call the service, shape the response.
+// /movies endpoints (FR-1 CRUD; FR-5 search, filters and sort) and /genres (genre list for the filters):
+// validate, call the service, shape the response.
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { ErrorResponse, IdParams } from '../schemas/common.ts';
-import { Movie, MovieInput, MovieListQuery, MoviePage } from '../schemas/movie.ts';
+import { CatalogMovie, GenreList, MovieInput, MovieListQuery, MoviePage } from '../schemas/movie.ts';
 import type { MovieService } from '../services/movie-service.ts';
 
 export async function movieRoutes(app: FastifyInstance, service: MovieService): Promise<void> {
@@ -14,13 +15,15 @@ export async function movieRoutes(app: FastifyInstance, service: MovieService): 
     service.list(req.query),
   );
 
-  r.get('/movies/:id', { schema: { tags, params: IdParams, response: { 200: Movie, 404: ErrorResponse } } }, (req) =>
+  r.get('/genres', { schema: { tags, response: { 200: GenreList } } }, () => service.genres());
+
+  r.get('/movies/:id', { schema: { tags, params: IdParams, response: { 200: CatalogMovie, 404: ErrorResponse } } }, (req) =>
     service.get(req.params.id),
   );
 
   r.post(
     '/movies',
-    { schema: { tags, body: MovieInput, response: { 201: Movie, 400: ErrorResponse, 409: ErrorResponse } } },
+    { schema: { tags, body: MovieInput, response: { 201: CatalogMovie, 400: ErrorResponse, 409: ErrorResponse } } },
     async (req, reply) => reply.status(201).send(service.create(req.body)),
   );
 
@@ -31,7 +34,7 @@ export async function movieRoutes(app: FastifyInstance, service: MovieService): 
         tags,
         params: IdParams,
         body: MovieInput,
-        response: { 200: Movie, 400: ErrorResponse, 404: ErrorResponse, 409: ErrorResponse },
+        response: { 200: CatalogMovie, 400: ErrorResponse, 404: ErrorResponse, 409: ErrorResponse },
       },
     },
     (req) => service.update(req.params.id, req.body),

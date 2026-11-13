@@ -20,6 +20,7 @@ const FIXTURES: Record<string, string[][]> = {
     ['tt5', '7.0', '7000'],
     ['tt6', '7.0', '8000'],
     ['bad7', '7.0', '8000'],
+    ['tt8', 'n/a', '8000'],
   ],
   'title.basics': [
     ['tconst', 'titleType', 'primaryTitle', 'originalTitle', 'isAdult', 'startYear', 'endYear', 'runtimeMinutes', 'genres'],
@@ -30,6 +31,7 @@ const FIXTURES: Record<string, string[][]> = {
     ['tt5', 'movie', 'No Year', 'No Year', '0', '\\N', '\\N', '90', 'Drama'],
     ['tt6', 'movie', 'Anthology', 'Anthology', '0', '2001', '\\N', '120', 'Drama'],
     ['bad7', 'movie', 'Bad Id', 'Bad Id', '0', '2001', '\\N', '120', 'Drama'],
+    ['tt8', 'movie', 'No Rating', 'No Rating', '0', '2002', '\\N', '100', 'Drama'],
   ],
   'title.crew': [
     ['tconst', 'directors', 'writers'],
@@ -38,6 +40,7 @@ const FIXTURES: Record<string, string[][]> = {
     ['tt5', 'nm1', '\\N'],
     ['tt6', MANY.join(','), '\\N'],
     ['bad7', 'nm1', '\\N'],
+    ['tt8', 'nm1', '\\N'],
   ],
   'name.basics': [
     ['nconst', 'primaryName', 'birthYear', 'deathYear', 'primaryProfession', 'knownForTitles'],
@@ -65,8 +68,10 @@ describe('readImdbMovies', () => {
       genres: ['Drama', 'Sci-Fi'],
       director: 'Denis Villeneuve',
       imdbId: 'tt1',
+      imdbRating: 7.9,
+      imdbVotes: 6000,
     });
-    expect(invalid).toBe(2); // tt5: \N year; bad7: not an IMDb ID
+    expect(invalid).toBe(3); // tt5: \N year; bad7: not an IMDb ID; tt8: non-numeric rating
   });
 
   it('keeps quotes in titles (TSV has no quoting)', async () => {
@@ -84,7 +89,7 @@ describe('readImdbMovies', () => {
     // tt3 passes the lower threshold but has no director, so it is counted invalid, not imported.
     const { inputs, invalid } = await readImdbMovies(dir, 50);
     expect(inputs).toHaveLength(3);
-    expect(invalid).toBe(3);
+    expect(invalid).toBe(4);
   });
 });
 
@@ -102,7 +107,24 @@ describe('importMovies', () => {
     const { inputs } = await readImdbMovies(dir, 5000);
     expect(importMovies(db, services.movies, inputs)).toEqual({ imported: 3, duplicates: 0, linked: 3 });
     expect(importMovies(db, services.movies, inputs)).toEqual({ imported: 0, duplicates: 3, linked: 0 });
-    expect(services.movies.list({ limit: 20, offset: 0 }).total).toBe(3);
+    expect(services.movies.list({ limit: 20, offset: 0, sort: 'title' }).total).toBe(3);
+    expect(db.prepare("SELECT imdb_rating, imdb_votes FROM movies WHERE imdb_id = 'tt1'").get()).toEqual({
+      imdb_rating: 7.9,
+      imdb_votes: 6000,
+    });
+  });
+
+  it('overwrites the IMDb rating and votes on a re-run', async () => {
+    const db = openDatabase(':memory:');
+    const services = createServices(db);
+    const { inputs } = await readImdbMovies(dir, 5000);
+    importMovies(db, services.movies, inputs);
+    const changed = inputs.map((m) => (m.imdbId === 'tt1' ? { ...m, imdbRating: 8.1, imdbVotes: 6100 } : m));
+    expect(importMovies(db, services.movies, changed)).toEqual({ imported: 0, duplicates: 3, linked: 0 });
+    expect(db.prepare("SELECT imdb_rating, imdb_votes FROM movies WHERE imdb_id = 'tt1'").get()).toEqual({
+      imdb_rating: 8.1,
+      imdb_votes: 6100,
+    });
   });
 
   it('links the IMDb ID of a movie that was added by hand earlier', async () => {
@@ -111,6 +133,10 @@ describe('importMovies', () => {
     const { id } = services.movies.create({ title: 'ARRIVAL', year: 2016, genres: ['Drama'], director: 'Someone' });
     const arrival = (await readImdbMovies(dir, 5000)).inputs.filter((m) => m.title === 'Arrival');
     expect(importMovies(db, services.movies, arrival)).toEqual({ imported: 0, duplicates: 1, linked: 1 });
-    expect(db.prepare('SELECT imdb_id FROM movies WHERE id = ?').get(id)).toEqual({ imdb_id: 'tt1' });
+    expect(db.prepare('SELECT imdb_id, imdb_rating, imdb_votes FROM movies WHERE id = ?').get(id)).toEqual({
+      imdb_id: 'tt1',
+      imdb_rating: 7.9,
+      imdb_votes: 6000,
+    });
   });
 });

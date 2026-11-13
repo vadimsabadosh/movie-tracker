@@ -2,7 +2,7 @@
 import { ConflictError, NotFoundError } from '../errors/errors.ts';
 import type { MovieRepository } from '../repositories/movie-repository.ts';
 import type { WatchRepository } from '../repositories/watch-repository.ts';
-import type { Movie, MovieInput, MovieListQuery } from '../schemas/movie.ts';
+import type { CatalogMovie, MovieInput, MovieListQuery } from '../schemas/movie.ts';
 
 export class MovieService {
   private readonly repo: MovieRepository;
@@ -13,22 +13,29 @@ export class MovieService {
     this.watches = watches;
   }
 
-  get(id: number): Movie {
+  get(id: number): CatalogMovie {
     const found = this.repo.findById(id);
     if (!found) throw new NotFoundError('Movie', id);
     return found;
   }
 
+  /** FR-5. Default order depends on the sort: titles A→Z, everything else newest/highest/most voted first. */
   list(query: MovieListQuery) {
-    return { ...this.repo.list(query), limit: query.limit, offset: query.offset };
+    const order = query.order ?? (query.sort === 'title' ? 'asc' : 'desc');
+    return { ...this.repo.list({ ...query, order }), limit: query.limit, offset: query.offset };
   }
 
-  create(input: MovieInput): Movie {
+  /** Genre names in use, for the genre dropdowns. */
+  genres(): { items: string[] } {
+    return { items: this.repo.listGenres() };
+  }
+
+  create(input: MovieInput): CatalogMovie {
     this.assertUnique(input);
     return this.repo.create(input);
   }
 
-  update(id: number, input: MovieInput): Movie {
+  update(id: number, input: MovieInput): CatalogMovie {
     this.get(id);
     this.assertUnique(input, id);
     return this.repo.update(id, input)!;
@@ -44,6 +51,11 @@ export class MovieService {
   /** Importer only (FR-9): stores the IMDb ID of an existing movie; true if it was newly linked. */
   attachImdbId(title: string, year: number, imdbId: string): boolean {
     return this.repo.attachImdbId(title, year, imdbId);
+  }
+
+  /** Importer only: refreshes the IMDb rating and vote count of the movie with this IMDb ID. */
+  setImdbRating(imdbId: string, rating: number, votes: number): void {
+    this.repo.setImdbRating(imdbId, rating, votes);
   }
 
   /** (title, year) is unique, title compared case-insensitively. */

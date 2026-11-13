@@ -1,7 +1,7 @@
 // Watch Entry schemas (ADR-004). Fields: vault concepts "Watch Entry" (FR-2), "Rating" (FR-3), "Watch History" (FR-4).
 import { z } from 'zod';
-import { page, PaginationQuery } from './common.ts';
-import { maxYear, MIN_YEAR, Movie } from './movie.ts';
+import { inverted, page, PaginationQuery, SortOrder } from './common.ts';
+import { Movie, QueryYear } from './movie.ts';
 
 /** Earliest possible watch date: the earliest catalog year (MIN_YEAR in movie.ts). */
 export const MIN_WATCH_DATE = '1888-01-01';
@@ -37,14 +37,7 @@ export type WatchEntry = z.infer<typeof WatchEntry>;
 export const WatchSort = z.enum(['watchedAt', 'rating', 'year', 'title']);
 export type WatchSort = z.infer<typeof WatchSort>;
 
-export const SortOrder = z.enum(['asc', 'desc']);
-export type SortOrder = z.infer<typeof SortOrder>;
-
-const QueryYear = z.coerce.number().int().min(MIN_YEAR).max(maxYear());
 const QueryRating = z.coerce.number().int().min(1).max(10);
-
-/** Both bounds given and lower > upper: an inverted range is a client error, not an empty result. */
-const inverted = <T extends number | string>(from: T | undefined, to: T | undefined) => from !== undefined && to !== undefined && from > to;
 
 // FR-4 Watch History: all filters optional, every range inclusive; dates compare as YYYY-MM-DD strings.
 export const WatchListQuery = PaginationQuery.extend({

@@ -106,6 +106,6 @@ describe('GET /movies/:id/poster', () => {
 
   it('leaves the Movie response shape unchanged', async () => {
     const { app, id } = await setup({ posterPath: '/kept.jpg' });
-    expect((await app.inject(`/movies/${id}`)).json()).toEqual({ id, ...MOVIE });
+    expect((await app.inject(`/movies/${id}`)).json()).toEqual({ id, ...MOVIE, imdbRating: null, imdbVotes: null, watched: false });
   });
 });

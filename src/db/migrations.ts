@@ -40,4 +40,12 @@ export const MIGRATIONS: readonly string[] = [
   ALTER TABLE movies ADD COLUMN poster_path TEXT CHECK (poster_path = '' OR poster_path GLOB '/*');
   CREATE UNIQUE INDEX movies_imdb_id ON movies (imdb_id);
   `,
+  // 4. Catalog filters/sort (FR-5): IMDb rating + votes (NULL = no IMDb data); director_key as title_key (ADR-008).
+  //    text_key() is the JS textKey, registered by migrate() in database.ts.
+  `
+  ALTER TABLE movies ADD COLUMN imdb_rating REAL CHECK (imdb_rating BETWEEN 1 AND 10);
+  ALTER TABLE movies ADD COLUMN imdb_votes INTEGER CHECK (imdb_votes >= 0);
+  ALTER TABLE movies ADD COLUMN director_key TEXT NOT NULL DEFAULT '';
+  UPDATE movies SET director_key = text_key(director);
+  `,
 ];

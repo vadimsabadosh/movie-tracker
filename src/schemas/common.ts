@@ -16,3 +16,10 @@ export const ErrorResponse = z.object({
 export function page<T extends z.ZodType>(item: T) {
   return z.object({ items: z.array(item), total: z.number().int(), limit: z.number().int(), offset: z.number().int() });
 }
+
+export const SortOrder = z.enum(['asc', 'desc']);
+export type SortOrder = z.infer<typeof SortOrder>;
+
+/** Both bounds given and lower > upper: an inverted range is a client error, not an empty result. */
+export const inverted = <T extends number | string>(from: T | undefined, to: T | undefined) =>
+  from !== undefined && to !== undefined && from > to;
