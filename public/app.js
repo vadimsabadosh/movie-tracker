@@ -36,7 +36,12 @@ export function el(tag, props = {}, ...children) {
 }
 
 const today = () => new Date().toLocaleDateString('sv'); // YYYY-MM-DD in local time
-const chips = (genres) => el('span', { class: 'chips' }, genres.map((g) => el('span', { class: 'chip', text: g })));
+const chips = (genres) =>
+  el(
+    'span',
+    { class: 'chips' },
+    genres.map((g) => el('span', { class: 'chip', text: g })),
+  );
 const errorLine = () => el('p', { class: 'error', role: 'alert', hidden: true });
 function showError(node, error) {
   node.textContent = error ? error.message : '';
@@ -76,7 +81,10 @@ function catalog() {
       showError(error, null);
       list.replaceChildren(
         page.items.length === 0
-          ? el('p', { class: 'empty', text: state.q ? `No movies match “${state.q}”.` : 'The catalog is empty. Run npm run import:imdb or add a movie.' })
+          ? el('p', {
+              class: 'empty',
+              text: state.q ? `No movies match “${state.q}”.` : 'The catalog is empty. Run npm run import:imdb or add a movie.',
+            })
           : el(
               'ul',
               { class: 'rows' },
@@ -100,6 +108,7 @@ function catalog() {
         }) ?? '',
       );
     } catch (e) {
+      list.replaceChildren();
       showError(error, e);
     }
   }
@@ -136,7 +145,10 @@ function addMovieForm() {
             body: {
               title: title.value,
               year: Number(year.value),
-              genres: genres.value.split(',').map((g) => g.trim()).filter(Boolean),
+              genres: genres.value
+                .split(',')
+                .map((g) => g.trim())
+                .filter(Boolean),
               director: director.value,
             },
           });
@@ -146,7 +158,14 @@ function addMovieForm() {
         }
       },
     },
-    el('div', { class: 'grid' }, field('Title', title), field('Year', year), field('Genres (comma-separated)', genres), field('Director', director)),
+    el(
+      'div',
+      { class: 'grid' },
+      field('Title', title),
+      field('Year', year),
+      field('Genres (comma-separated)', genres),
+      field('Director', director),
+    ),
     error,
     el('div', {}, el('button', { class: 'primary', text: 'Add movie' })),
   );
@@ -173,7 +192,10 @@ function movieDetail(id) {
         watchForm(movie, watch),
       );
     } catch (e) {
-      root.replaceChildren(el('a', { class: 'back', href: '#/', text: '‹ Catalog' }), el('p', { class: 'error', role: 'alert', text: e.message }));
+      root.replaceChildren(
+        el('a', { class: 'back', href: '#/', text: '‹ Catalog' }),
+        el('p', { class: 'error', role: 'alert', text: e.message }),
+      );
     }
   })();
   return root;
@@ -231,9 +253,244 @@ function watchForm(movie, watch) {
   return form;
 }
 
+// ---------- History (#/history) ----------
+
+function history() {
+  const state = { offset: 0 };
+  const inputs = {
+    genre: el('input', { placeholder: 'Any' }),
+    ratingMin: el('input', { type: 'number', min: 1, max: 10 }),
+    ratingMax: el('input', { type: 'number', min: 1, max: 10 }),
+    watchedFrom: el('input', { type: 'date', max: today() }),
+    watchedTo: el('input', { type: 'date', max: today() }),
+    sort: el(
+      'select',
+      {},
+      ['watchedAt', 'rating', 'year', 'title'].map((v) =>
+        el('option', { value: v, text: { watchedAt: 'Watch date', rating: 'Rating', year: 'Release year', title: 'Title' }[v] }),
+      ),
+    ),
+    order: el(
+      'select',
+      {},
+      el('option', { value: '', text: 'Default' }),
+      el('option', { value: 'desc', text: 'Descending' }),
+      el('option', { value: 'asc', text: 'Ascending' }),
+    ),
+  };
+  const list = el('div', { 'aria-live': 'polite' });
+  const error = errorLine();
+
+  async function load() {
+    const params = new URLSearchParams({ limit: PAGE, offset: state.offset });
+    for (const [key, input] of Object.entries(inputs)) if (input.value.trim()) params.set(key, input.value.trim());
+    try {
+      const page = await api(`/watches?${params}`);
+      showError(error, null);
+      list.replaceChildren(
+        page.items.length === 0
+          ? el('p', {
+              class: 'empty',
+              text: !['genre', 'ratingMin', 'ratingMax', 'watchedFrom', 'watchedTo'].some((k) => params.has(k))
+                ? 'Nothing watched yet. Find a movie in the catalog and rate it.'
+                : 'No watches match these filters.',
+            })
+          : el(
+              'ul',
+              { class: 'rows' },
+              page.items.map((w) =>
+                el(
+                  'li',
+                  {},
+                  el(
+                    'a',
+                    { class: 'row history-row', href: `#/movies/${w.movieId}` },
+                    el('span', { class: 'rating', text: String(w.rating), 'aria-label': `Rated ${w.rating} of 10` }),
+                    el(
+                      'span',
+                      {},
+                      el('span', { class: 'title', text: w.movie.title }),
+                      el('span', { class: 'muted', text: ` (${w.movie.year})` }),
+                      w.note ? el('span', { class: 'note', text: w.note }) : null,
+                    ),
+                    el('span', { class: 'muted', text: w.watchedAt }),
+                  ),
+                ),
+              ),
+            ),
+        pager(page, (offset) => {
+          state.offset = offset;
+          load();
+        }) ?? '',
+      );
+    } catch (e) {
+      list.replaceChildren();
+      showError(error, e);
+    }
+  }
+
+  const filters = el(
+    'form',
+    {
+      class: 'card grid filters',
+      onsubmit: (event) => {
+        event.preventDefault();
+        state.offset = 0;
+        load();
+      },
+      onchange: () => {
+        state.offset = 0;
+        load();
+      },
+    },
+    field('Genre', inputs.genre),
+    field('Rating from', inputs.ratingMin),
+    field('Rating to', inputs.ratingMax),
+    field('Watched from', inputs.watchedFrom),
+    field('Watched to', inputs.watchedTo),
+    field('Sort by', inputs.sort),
+    field('Order', inputs.order),
+  );
+
+  load();
+  return [el('h1', { class: 'page-title', text: 'Watch history' }), filters, error, list];
+}
+
+// ---------- Dashboard (#/dashboard) ----------
+
+/** Horizontal bar list; `value` is what the bar length is scaled by. */
+function bars(items, label, value, caption) {
+  const max = Math.max(...items.map(value), 1);
+  return el(
+    'ul',
+    { class: 'bars' },
+    items.map((item) =>
+      el(
+        'li',
+        {},
+        el('span', { class: 'bar-label', text: label(item) }),
+        el('span', { class: 'bar-track' }, el('span', { class: 'bar', style: `width: ${(value(item) / max) * 100}%` })),
+        el('span', { class: 'muted bar-value', text: caption(item) }),
+      ),
+    ),
+  );
+}
+
+function section(title, ...body) {
+  return el('section', { class: 'card' }, el('h2', { text: title }), ...body);
+}
+
+function dashboard() {
+  const root = el(
+    'div',
+    { class: 'stack' },
+    el('h1', { class: 'page-title', text: 'Dashboard' }),
+    el('p', { class: 'muted', text: 'Loading…' }),
+  );
+  (async () => {
+    try {
+      const [stats, profile, recs] = await Promise.all([api('/stats'), api('/profile'), api('/recommendations?limit=10')]);
+      const empty = el('p', { class: 'empty', text: 'Rate a movie to see this.' });
+      const preference = (items) =>
+        items.length === 0
+          ? empty.cloneNode(true)
+          : bars(
+              items.slice(0, 8),
+              (i) => i.name,
+              (i) => i.count,
+              (i) => `${i.count} · avg ${i.averageRating}`,
+            );
+
+      root.replaceChildren(
+        el('h1', { class: 'page-title', text: 'Dashboard' }),
+        el(
+          'div',
+          { class: 'totals' },
+          el(
+            'div',
+            { class: 'card total' },
+            el('span', { class: 'big', text: String(stats.watchedCount) }),
+            el('span', { class: 'muted', text: 'movies watched' }),
+          ),
+          el(
+            'div',
+            { class: 'card total' },
+            el('span', { class: 'big', text: stats.averageRating === null ? '—' : String(stats.averageRating) }),
+            el('span', { class: 'muted', text: 'average rating' }),
+          ),
+        ),
+        section(
+          'Recommended for you',
+          recs.items.length === 0
+            ? empty.cloneNode(true)
+            : el(
+                'ol',
+                { class: 'recs' },
+                recs.items.map((r) =>
+                  el(
+                    'li',
+                    {},
+                    el(
+                      'div',
+                      { class: 'between' },
+                      el(
+                        'a',
+                        { class: 'title', href: `#/movies/${r.movie.id}` },
+                        r.movie.title,
+                        el('span', { class: 'muted', text: ` (${r.movie.year})` }),
+                      ),
+                      el('span', { class: 'score', text: `score ${r.score}` }),
+                    ),
+                    el('p', { class: 'muted', text: r.explanation }),
+                  ),
+                ),
+              ),
+        ),
+        el(
+          'div',
+          { class: 'two' },
+          section('Favourite genres', preference(profile.genres)),
+          section('Favourite directors', preference(profile.directors)),
+        ),
+        el(
+          'div',
+          { class: 'two' },
+          section(
+            'Watched by genre',
+            stats.byGenre.length === 0
+              ? empty.cloneNode(true)
+              : bars(
+                  stats.byGenre,
+                  (g) => g.name,
+                  (g) => g.count,
+                  (g) => String(g.count),
+                ),
+          ),
+          section(
+            'Watched by release year',
+            stats.byYear.length === 0
+              ? empty.cloneNode(true)
+              : bars(
+                  stats.byYear,
+                  (y) => String(y.year),
+                  (y) => y.count,
+                  (y) => String(y.count),
+                ),
+          ),
+        ),
+      );
+    } catch (e) {
+      root.replaceChildren(el('p', { class: 'error', role: 'alert', text: e.message }));
+    }
+  })();
+  return root;
+}
+
 // ---------- Router ----------
 
 const routes = [
+  [/^#\/history$/, () => history(), '#/history'],
+  [/^#\/dashboard$/, () => dashboard(), '#/dashboard'],
   [/^#\/movies\/(\d+)$/, (m) => movieDetail(m[1]), '#/'],
   [/^#?\/?$/, () => catalog(), '#/'],
 ];
