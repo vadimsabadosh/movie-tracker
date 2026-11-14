@@ -1,97 +1,124 @@
 # movie-tracker
 
-REST API для особистої історії переглядів фільмів із рекомендаціями за профілем уподобань, а також harness для агентної розробки (MCP-сервер бази знань, guardrails, skills, оркестрація).
+Особистий журнал переглянутих фільмів: каталог із ~19 000 фільмів IMDb, оцінки й нотатки, щоденник переглядів, профіль уподобань і рекомендації. Постери, опис і актори підтягуються з TMDB. Усе працює локально: Fastify + SQLite, один процес, веб-інтерфейс без збірки.
 
-У репозиторії два застосунки:
+У репозиторії також є harness для агентної розробки (MCP-сервер бази знань, guardrails, skills, оркестрація). Щоб користуватися застосунком, він не потрібен; див. розділ «Для розробки з агентами».
 
-| Застосунок | Каталог | Що це |
-|------------|---------|-------|
-| API movie-tracker | `src/` | Fastify + SQLite, один процес, без зовнішніх сервісів |
-| MCP-сервер `vault` | `harness/vault-mcp/` | Конектор між агентом і базою знань `movie-tracker-vault` (запускає Claude Code) |
+| Частина | Каталог | Що це |
+|---------|---------|-------|
+| Застосунок | `src/`, `public/` | REST API і веб-інтерфейс на `http://127.0.0.1:3000` |
+| MCP-сервер `vault` | `harness/vault-mcp/` | Конектор між агентом (Claude Code) і базою знань `movie-tracker-vault`; лише для розробки |
 
-## Вимоги
+## Швидкий старт
 
-- Node.js **24** або новіший (TypeScript виконується напряму, без збірки): `node --version`
-- git
-- Для MCP-сервера `vault` — клон `movie-tracker-vault` поруч із цим репозиторієм
-- Для MCP-сервера `github` — fine-grained токен у змінній `GITHUB_PAT` (див. `docs/mcp-connector.md`, розділ 3)
-
-## 1. API movie-tracker
+Потрібні **Node.js 24+** (`node --version`) і git. TypeScript виконується напряму, без збірки.
 
 ```bash
-npm install     # також встановлює ESLint у tools/lint (postinstall)
-npm start       # http://127.0.0.1:3000
+git clone <url-цього-репозиторію> movie-tracker
+cd movie-tracker
+npm install            # також встановлює ESLint у tools/lint (postinstall)
+npm run import:imdb    # наповнити каталог: ~19 000 фільмів, ~1 хв (завантажує ~640 МБ один раз)
+npm start              # відкрийте http://127.0.0.1:3000
 ```
 
-База даних — файл `data/movie-tracker.db`; каталог і схема створюються під час першого запуску.
+Готово: каталог, щоденник і рекомендації працюють одразу. Постери, опис і актори з'являться, щойно ви додасте ключ TMDB (наступний розділ). Без нього застосунок працює повністю, а замість постерів показує картки з назвами.
+
+## Постери, опис і актори (TMDB, необов'язково)
+
+1. Зареєструйтеся на [themoviedb.org](https://www.themoviedb.org/) і в **Settings → API** скопіюйте **API Read Access Token** (довгий токен, не короткий «API Key»).
+2. Створіть у корені репозиторію файл `.env`. Він уже в `.gitignore`, тож у git не потрапить:
+
+   ```
+   TMDB_ACCESS_TOKEN=<ваш токен>
+   ```
+
+3. Перезапустіть `npm start`.
+
+Дані з TMDB завантажуються ліниво. Постер шукається, коли фільм уперше з'являється на екрані, а опис і актори — коли ви вперше відкриваєте сторінку фільму. Результат зберігається в базі, тому далі все працює й без мережі. Якщо TMDB недоступний, нічого не кешується, і наступний перегляд спробує ще раз.
+
+Фільми зіставляються з TMDB за IMDb ID, який записує `npm run import:imdb`. Якщо каталог імпортовано ще до появи постерів, запустіть імпорт ще раз: він лише допише IMDb ID, рейтинги й голоси, нічого не дублюючи.
+
+## Що є в застосунку
+
+| Екран | Що там |
+|-------|--------|
+| **Films** (`#/`) | Сітка постерів, пошук за назвою, фільтри (жанр, роки, режисер, переглянуто / ні), сортування за популярністю, рейтингом IMDb, роком або назвою; додавання фільму вручну |
+| **Сторінка фільму** | Постер, рік, режисер, рейтинг IMDb, жанри, опис і актори; оцінка 1–10, дата перегляду й нотатка |
+| **Diary** (`#/history`) | Переглянуті фільми за місяцями, з фільтрами за жанром, оцінкою й датою |
+| **Your taste** (`#/dashboard`) | Рекомендації «Watch next» із поясненням, улюблені жанри й режисери, статистика |
+
+**Як працюють рекомендації.** Це детермінована формула, не ШІ і не RAG. Для кожного жанру й режисера, які ви оцінювали, рахується «спорідненість»: кількість × (середня оцінка − 5,5) / (кількість + 1). Оцінка нижче 5,5 відштовхує. Непереглянутий фільм отримує 2 × спорідненість режисера + сума спорідненостей його жанрів. Показуються фільми з балом > 0, від найвищого. Деталі: `src/recommendation/profile-score-recommender.ts`, ADR-003, ADR-014.
+
+## Налаштування
 
 | Змінна | За замовчуванням | Призначення |
 |--------|------------------|-------------|
 | `PORT` | `3000` | Порт HTTP-сервера (слухає лише `127.0.0.1`) |
-| `DATABASE_PATH` | `data/movie-tracker.db` | Шлях до файлу SQLite; `:memory:` — база в пам'яті |
+| `DATABASE_PATH` | `data/movie-tracker.db` | Файл SQLite; `:memory:` — база в пам'яті |
+| `TMDB_ACCESS_TOKEN` | — | Токен TMDB для постерів, опису й акторів; без нього ці дані не показуються |
+| `IMDB_MIN_VOTES` | `5000` | Поріг голосів IMDb для `npm run import:imdb` |
+
+Змінні можна задати в `.env` (його читає `npm start`) або перед командою:
 
 ```bash
 PORT=4000 DATABASE_PATH=/tmp/demo.db npm start
 ```
 
-### Наповнення каталогу з IMDb
+Каталог `data/` (база й кеш наборів IMDb) у git не потрапляє. Дані IMDb — лише для особистого некомерційного використання. Застосунок використовує TMDB API, але TMDB його не схвалював і не сертифікував.
 
-```bash
-npm run import:imdb   # ~19 000 фільмів із ≥ 5000 голосів, ~1 хв
-```
+## API
 
-Завантажує набори даних IMDb (`title.ratings`, `title.basics`, `title.crew`, `name.basics`, ~640 МБ) у `data/imdb/`
-(повторний запуск бере їх із кешу) і зберігає фільми через `MovieService`: валідація та унікальність «назва + рік»
-ті самі, що й для `POST /movies`, тож повторний запуск додає лише нове. Історію переглядів не створює.
-`IMDB_MIN_VOTES` змінює поріг голосів, `DATABASE_PATH` — базу. Дані IMDb — лише для особистого некомерційного
-використання; не комітьте `data/`.
-
-### Перевірка
-
-```bash
-curl localhost:3000/health
-# {"status":"ok"}
-
-curl -X POST localhost:3000/movies -H 'content-type: application/json' \
-  -d '{"title":"Arrival","year":2016,"genres":["Sci-Fi"],"director":"Denis Villeneuve"}'
-
-curl -X POST localhost:3000/movies/1/watch -H 'content-type: application/json' \
-  -d '{"rating":9}'
-
-curl localhost:3000/stats
-curl localhost:3000/profile
-curl localhost:3000/recommendations
-```
-
-### Ендпоінти
+Веб-інтерфейс працює поверх REST API; ним можна користуватися й напряму.
 
 | Метод | Шлях | Призначення |
 |-------|------|-------------|
 | `GET` | `/health` | Перевірка, що сервер працює |
-| `GET` `POST` | `/movies` | Каталог фільмів: список (фільтри, пагінація) і додавання |
-| `GET` `PUT` `DELETE` | `/movies/:id` | Один фільм |
-| `GET` `POST` `PUT` `DELETE` | `/movies/:id/watch` | Позначка «переглянуто» з оцінкою 1–10 |
-| `GET` | `/watches` | Історія переглядів |
+| `GET` `POST` | `/movies` | Каталог: пошук `q`, фільтри `genre`, `yearFrom`, `yearTo`, `director`, `watched`, сортування `sort`/`order`, пагінація; додавання фільму |
+| `GET` `PUT` `DELETE` | `/movies/:id` | Один фільм (з рейтингом IMDb і позначкою «переглянуто») |
+| `GET` | `/movies/:id/poster` | Редирект на постер TMDB; 404 `POSTER_NOT_LINKED` / `POSTER_NOT_FOUND`, 503, якщо TMDB недоступний |
+| `GET` | `/movies/:id/details` | Опис і до 10 акторів із TMDB |
+| `GET` `POST` `PUT` `DELETE` | `/movies/:id/watch` | Перегляд з оцінкою 1–10, датою й нотаткою |
+| `GET` | `/genres` | Жанри, що є в каталозі |
+| `GET` | `/watches` | Історія переглядів з фільтрами |
 | `GET` | `/profile` | Профіль уподобань |
 | `GET` | `/recommendations` | Рекомендації |
 | `GET` | `/stats` | Статистика переглядів |
 | `GET` | `/openapi.json` | Специфікація OpenAPI, згенерована зі схем маршрутів |
 
-Повні схеми запитів і відповідей — у `/openapi.json`, вимоги — у `docs/app-requirements.md`.
+```bash
+curl 'localhost:3000/movies?q=arrival&limit=1'
+curl -X POST localhost:3000/movies/1/watch -H 'content-type: application/json' -d '{"rating":9}'
+curl localhost:3000/recommendations
+```
 
-### Перевірки коду
+Повні схеми — у `/openapi.json`, вимоги — у `docs/app-requirements.md`.
+
+## Якщо щось не так
+
+| Симптом | Причина й рішення |
+|---------|-------------------|
+| Каталог порожній | Запустіть `npm run import:imdb` |
+| Замість постерів — картки з назвами | Немає `TMDB_ACCESS_TOKEN` або мережі. `curl localhost:3000/movies/<id>/poster` покаже причину: `503 TMDB is not configured` — токена немає; `404 POSTER_NOT_LINKED` — у фільму немає IMDb ID (повторіть імпорт або це фільм, доданий вручну); `404 POSTER_NOT_FOUND` — у TMDB немає постера |
+| `database is at schema version N, code knows only M` | База новіша за код: оновіть репозиторій (`git pull`) |
+| `npm start` падає на старті | Перевірте версію Node (`node --version`, потрібна 24+) |
+
+## Перевірки коду
 
 ```bash
-npm test             # тести (Vitest)
-npm run check        # typecheck + lint + format:check + coverage — те саме, що запускають агенти
+npm test             # тести (Vitest), без мережі
+npm run check        # typecheck + lint + format:check + coverage ≥ 80 %
 ```
 
-## 2. MCP-сервер `vault`
+## Для розробки з агентами (необов'язково)
 
-Сервер запускає Claude Code сам за `.mcp.json`; вручну його запускати не потрібно. Достатньо встановити залежності й покласти vault поруч:
+Цей розділ потрібен лише тим, хто розвиває проєкт через Claude Code з harness курсу.
+
+### MCP-сервер `vault`
+
+Claude Code запускає його сам за `.mcp.json`. Достатньо встановити залежності й покласти клон бази знань поруч:
 
 ```
-Інженерія даних/
+<батьківська тека>/
 ├── movie-tracker/          ← цей репозиторій
 └── movie-tracker-vault/    ← клон бази знань
 ```
@@ -103,7 +130,7 @@ npm test             # тести на тимчасовому vault
 npm run reindex      # необов'язково: повна перебудова семантичного індексу
 ```
 
-Під час першого запуску сервер один раз завантажує модель embeddings (~145 МБ) у `harness/vault-mcp/.index/`.
+Під час першого запуску сервер один раз завантажує модель embeddings (~145 МБ) у `harness/vault-mcp/.index/`. `search_notes` — семантичний пошук (RAG-ретрівер) для агентів; застосунок його не використовує.
 
 | Змінна | За замовчуванням | Призначення |
 |--------|------------------|-------------|
@@ -111,20 +138,21 @@ npm run reindex      # необов'язково: повна перебудов�
 | `VAULT_SEARCH` | `semantic` | `keyword` — пошук за ключовими словами замість семантичного |
 | `VAULT_PUSH` | `true` | `false` — `ingest_note` комітить, але не пушить |
 
-Повний опис, порівняльне тестування й інші змінні — у `docs/mcp-connector.md` і `docs/rag-evaluation/README.md`.
+Повний опис і порівняльне тестування — у `docs/mcp-connector.md` і `docs/rag-evaluation/README.md`.
 
-## 3. Claude Code і harness
+### Claude Code і harness
 
 ```bash
-export GITHUB_PAT=<токен>                      # для сервера github
+export GITHUB_PAT=<токен>                      # для MCP-сервера github (див. docs/mcp-connector.md, розділ 3)
 git config core.hooksPath harness/git-hooks    # git-guardrails (один раз на клон)
 claude                                          # у корені репозиторію
 ```
 
-У Claude Code команда `/mcp` показує статус серверів `vault` і `github`. Hooks агентної IDE підключено в `.claude/settings.json`, skills — у `.claude/skills/`, ролі оркестрації — у `.claude/agents/`.
+У Claude Code команда `/mcp` показує статус серверів `vault` і `github`. Hooks підключено в `.claude/settings.json`, skills — у `.claude/skills/`, ролі оркестрації — у `.claude/agents/`.
 
 | Документ | Зміст |
 |----------|-------|
-| `docs/guardrails.md` | Guardrails і їхня перевірка |
+| `docs/guardrails.md` | Guardrails і їхня перевірка (`node --test harness/hooks/test/*.test.ts`) |
 | `docs/skills.md` | Skills (`new-module`, `record-adr`, `orchestrate`) |
 | `docs/orchestration/` | Журнали оркестрації Planner → Coder → Reviewer |
+| `PRODUCT.md` | Продуктовий контекст для дизайну інтерфейсу |
