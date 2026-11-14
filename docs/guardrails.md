@@ -34,7 +34,7 @@
 | B2 | Коміт напряму в `main` | `git commit/merge/rebase/cherry-pick/revert/am`, коли поточна гілка (з урахуванням `cd`, `git -C`) — `main` | pre-commit |
 | B3 | Знищення історії чи незакомічених змін; видалення гілок практичних | `git reset --hard`, `git clean -f`, `git push --delete`, `git push origin :branch`, `git branch -d/-D main\|prN` | pre-push: видалення гілки |
 | B4 | Доступ до vault в обхід MCP | Read/Edit/Write/Glob/Grep зі шляхом у `../movie-tracker-vault`; Bash, що згадує клон vault чи виконується в ньому. Дозволено `git ls-remote <URL>` | — |
-| B5 | Читання чи витік секретів | Файли `.env*` (крім `.env.example`), `*.pem`, `*.key`, `id_rsa*`, `.npmrc`, `.netrc`; змінні `GITHUB_PAT`, `*_TOKEN`, `*SECRET*`, `*PASSWORD*`, `*API_KEY*` у команді; `env`/`printenv` без аргументів | pre-commit: файли-секрети в індексі |
+| B5 | Читання чи витік секретів | Файли `.env*` (крім `.env.example`), `*.pem`, `*.key`, `id_rsa*`, `.npmrc`, `.netrc`; змінні `GITHUB_PAT`, `*_TOKEN`, `*SECRET*`, `*PASSWORD*`, `*API_KEY*` у команді, зокрема в тілі heredoc; `env`/`printenv` без аргументів | pre-commit: файли-секрети в індексі |
 | B6 | Зміна guardrails агентом | Edit/Write `.claude/settings*.json`, `harness/hooks/**`, `harness/git-hooks/**`, `docs/guardrails.md`; Bash-запис у них (`>`, `sed -i`, `rm`, `mv`, `cp`, `git restore`…), зокрема видалення теки, що їх містить; `--no-verify`; `git config core.hooksPath` | — |
 | B7 | Видалення даних і файлів поза проєктом | `rm`/`unlink`/`shred` шляху поза репозиторієм, кореня проєкту, `~`/`$VAR`, файлів `*.db`/`*.sqlite*`, `data/`, `.git` | — |
 | B8 | Публікація пакета | `npm/pnpm/yarn publish`, `unpublish` | — |
@@ -45,9 +45,9 @@
 |----|---------|------------------------|
 | W1 | Зміна залежностей | `npm install/i/add/ci/uninstall/update` (і pnpm, yarn) |
 | W2 | Запис у git | `commit`, `merge`, `rebase`, `tag`, `stash`, `push` (не в main), створення гілки (`branch X`, `checkout -b`, `switch -c`) |
-| W3 | Схема БД і міграції | Edit/Write у `src/db/**`, `migrations/**`, `*.sql` |
-| W4 | Конфігурація | `package.json`, lock-файли, `tsconfig*.json`, ESLint, Prettier, Vitest, `.github/**`, `.mcp.json`, `CLAUDE.md` |
-| W5 | Ядро рекомендацій (NFR-5) | Edit/Write у `src/recommendation/**` — зміна впливає на детермінований результат |
+| W3 | Схема БД і міграції | Edit/Write або запис через Bash (`>`, `>>`, heredoc, `tee`, `cp`, `mv`, `sed -i`…) у `src/db/**`, `migrations/**`, `*.sql` |
+| W4 | Конфігурація | Edit/Write або запис через Bash у `package.json`, lock-файли, `tsconfig*.json`, ESLint, Prettier, Vitest, `.github/**`, `.mcp.json`, `CLAUDE.md` |
+| W5 | Ядро рекомендацій (NFR-5) | Edit/Write або запис через Bash у `src/recommendation/**` — зміна впливає на детермінований результат |
 | W6 | Запис у базу знань | `mcp__vault__ingest_note` (коміт і push у репозиторій vault) |
 | W7 | Мережа | `curl`, `wget`, `ssh`, `scp`, `rsync`, `nc`; `gh` окрім читання (`pr view/list/diff/checks`, `issue view/list`…) |
 | W8 | Прихований код | Оболонка зі скриптом-файлом чи зі stdin (`bash deploy.sh`, `… \| sh`, `bash <<EOF`), інтерпретатор із кодом у рядку (`node -e`, `python3 -c`), виконуваний файл поза системними теками (`./tools/ls`), `xargs` (аргументи зі stdin), невідома опція обгортки (`env --x`, `nice --x`) — hook не бачить, що буде виконано |

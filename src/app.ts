@@ -1,8 +1,11 @@
 // Fastify application factory: wires schemas, error handling and routes (ADR-001 layers).
+import { fileURLToPath } from 'node:url';
+import fastifyStatic from '@fastify/static';
 import swagger from '@fastify/swagger';
 import type Database from 'better-sqlite3';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { jsonSchemaTransform, serializerCompiler, validatorCompiler, type ZodTypeProvider } from 'fastify-type-provider-zod';
+import type { DetailsSource, PosterSource } from './clients/tmdb.ts';
 import { createServices } from './container.ts';
 import { errorHandler } from './errors/errors.ts';
 import { registerRoutes } from './routes/index.ts';
@@ -12,9 +15,13 @@ export interface AppOptions {
   logger?: boolean;
   /** Clock for date rules (tests pin it); defaults to the local date. */
   today?: () => string;
+  /** TMDB poster lookup (FR-9); omitted means no TMDB. */
+  posterSource?: PosterSource;
+  /** TMDB plot and cast lookup (FR-10); omitted means no TMDB. */
+  detailsSource?: DetailsSource;
 }
 
-export async function buildApp({ db, logger = false, today }: AppOptions): Promise<FastifyInstance> {
+export async function buildApp({ db, logger = false, today, posterSource, detailsSource }: AppOptions): Promise<FastifyInstance> {
   const app = Fastify({ logger }).withTypeProvider<ZodTypeProvider>();
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
@@ -28,6 +35,8 @@ export async function buildApp({ db, logger = false, today }: AppOptions): Promi
     transform: jsonSchemaTransform,
   });
   app.get('/openapi.json', { schema: { hide: true } }, () => app.swagger());
-  await registerRoutes(app, createServices(db, today));
+  // Web UI (no build step): public/ at /, resolved from this file so tests and `npm start` agree.
+  await app.register(fastifyStatic, { root: fileURLToPath(new URL('../public/', import.meta.url)), prefix: '/' });
+  await registerRoutes(app, createServices(db, today, undefined, posterSource, detailsSource));
   return app;
 }

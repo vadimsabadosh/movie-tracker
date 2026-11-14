@@ -48,6 +48,8 @@ interface Context {
   opaque: boolean;
   /** Bash only: a shell or interpreter runs code the guard cannot see (script file, stdin, `-e`). */
   hiddenCode: string | null;
+  /** Bash only: heredoc bodies, scanned for secrets (B5). */
+  heredocBodies: string[];
 }
 
 interface Command {
@@ -74,7 +76,7 @@ const rel = (ctx: Context, file: string) => path.relative(ctx.env.projectDir, fi
 const inProject = (ctx: Context, file: string) => within(file, ctx.env.projectDir);
 
 const SECRET_FILE = /(^|\/)(\.env(\.(?!example$)[\w.-]+)?|[^/]*\.(pem|key|p12|pfx)|id_(rsa|ed25519|ecdsa)[^/]*|\.npmrc|\.netrc)$/;
-const SECRET_VAR = /\b(GITHUB_PAT|GH_TOKEN|GITHUB_TOKEN|[A-Z_]*(SECRET|PASSWORD|API_KEY)[A-Z_]*)\b/;
+const SECRET_VAR = /\b(GITHUB_PAT|[A-Z_]*_TOKEN|[A-Z_]*(SECRET|PASSWORD|API_KEY)[A-Z_]*)\b/;
 const GUARD_FILES = ['.claude/settings.json', '.claude/settings.local.json', 'harness/hooks/', 'harness/git-hooks/', 'docs/guardrails.md'];
 const isGuardFile = (relPath: string) => GUARD_FILES.some((g) => (g.endsWith('/') ? relPath.startsWith(g) : relPath === g));
 /** A guardrail file, or a directory that contains one (`rm -rf harness`). */
@@ -217,6 +219,11 @@ export const RULES: Rule[] = [
           return 'dumping the environment prints tokens';
         }
       }
+      // An unquoted heredoc expands `$TOKEN` into the file it writes; a quoted one still names it in a Bash write.
+      for (const body of ctx.heredocBodies) {
+        const name = SECRET_VAR.exec(body)?.[0];
+        if (name) return `${name} is a secret (in a heredoc body; write such files with Edit/Write)`;
+      }
       return null;
     },
   },
@@ -229,16 +236,14 @@ export const RULES: Rule[] = [
         const guard = ctx.paths.find((p) => inProject(ctx, p) && isGuardFile(rel(ctx, p)));
         if (guard) return `${rel(ctx, guard)} is a guardrail; only the student changes it`;
       }
-      for (const { seg, cwd, cwdKnown, expanded } of ctx.commands) {
+      for (const c of ctx.commands) {
+        const { seg, cwd, cwdKnown } = c;
         const g = git(seg);
         const noVerify = g !== null && (g.args.includes('--no-verify') || (g.sub === 'commit' && hasFlag(subjectWords(seg).slice(2), '-n')));
         if (noVerify && ['commit', 'push', 'merge'].includes(g.sub)) return '--no-verify skips the git guardrail hooks';
         if (g?.sub === 'config' && g.args.some((a) => /^core\.hookspath$/i.test(a))) return 'core.hooksPath selects the git guardrail hooks';
-        const writer = ['rm', 'mv', 'cp', 'tee', 'truncate', 'chmod', 'ln', 'install', 'touch', 'dd'].includes(seg.words[0] ?? '');
-        const sedInPlace = ['sed', 'perl'].includes(seg.words[0] ?? '') && seg.words.some((w) => /^-[a-zA-Z]*i/.test(w));
-        const gitRestore = g !== null && (g.sub === 'restore' || g.sub === 'checkout' || g.sub === 'rm' || g.sub === 'mv');
-        const targets = [...seg.redirects, ...(writer || sedInPlace || gitRestore ? [...seg.words.slice(1), ...expanded] : [])];
-        const relative = targets.filter((w) => !w.startsWith('-') && !path.isAbsolute(expandHome(w)));
+        const targets = writeTargets(c);
+        const relative = targets.filter((w) => !path.isAbsolute(expandHome(w)));
         if (!cwdKnown && relative.length) return `cannot verify ${relative[0]} after cd to an unknown directory`;
         const hit = targets.find((w) => {
           const abs = path.resolve(cwd, w);
@@ -315,7 +320,7 @@ export const RULES: Rule[] = [
     level: 'ask',
     title: 'Database schema and migrations',
     check: (ctx) => {
-      const hit = ctx.writes && ctx.paths.find((p) => inProject(ctx, p) && SCHEMA_FILE.test(rel(ctx, p)));
+      const hit = writtenFiles(ctx).find((p) => inProject(ctx, p) && SCHEMA_FILE.test(rel(ctx, p)));
       return hit ? `${rel(ctx, hit)} changes the database schema` : null;
     },
   },
@@ -324,7 +329,7 @@ export const RULES: Rule[] = [
     level: 'ask',
     title: 'Build, lint, test, CI, MCP and agent configuration',
     check: (ctx) => {
-      const hit = ctx.writes && ctx.paths.find((p) => inProject(ctx, p) && CONFIG_FILE.test(rel(ctx, p)));
+      const hit = writtenFiles(ctx).find((p) => inProject(ctx, p) && CONFIG_FILE.test(rel(ctx, p)));
       return hit ? `${rel(ctx, hit)} is project configuration` : null;
     },
   },
@@ -333,7 +338,7 @@ export const RULES: Rule[] = [
     level: 'ask',
     title: 'Recommender core (determinism, NFR-5)',
     check: (ctx) => {
-      const hit = ctx.writes && ctx.paths.find((p) => inProject(ctx, p) && CORE_FILE.test(rel(ctx, p)));
+      const hit = writtenFiles(ctx).find((p) => inProject(ctx, p) && CORE_FILE.test(rel(ctx, p)));
       return hit ? `${rel(ctx, hit)} affects recommendation results (NFR-5)` : null;
     },
   },
@@ -582,6 +587,22 @@ function normalize(raw: Segment): Normalized {
   return { seg: { ...raw, words }, changed, hidden, nested };
 }
 
+/** Words a Bash command writes to: redirect targets, plus the operands of file-writing commands (sources included, to fail safe). */
+function writeTargets({ seg, expanded }: Command): string[] {
+  const g = git(seg);
+  const writer = ['rm', 'mv', 'cp', 'tee', 'truncate', 'chmod', 'ln', 'install', 'touch', 'dd'].includes(seg.words[0] ?? '');
+  const sedInPlace = ['sed', 'perl'].includes(seg.words[0] ?? '') && seg.words.some((w) => /^-[a-zA-Z]*i/.test(w));
+  const gitRestore = g !== null && (g.sub === 'restore' || g.sub === 'checkout' || g.sub === 'rm' || g.sub === 'mv');
+  const operands = writer || sedInPlace || gitRestore ? [...seg.words.slice(1), ...expanded] : [];
+  return [...seg.redirects, ...operands].filter((w) => !w.startsWith('-'));
+}
+
+/** Absolute paths the call writes: the file tool's path, or what Bash commands write (W3–W5). */
+function writtenFiles(ctx: Context): string[] {
+  const bash = ctx.commands.flatMap((c) => writeTargets(c).map((w) => path.resolve(c.cwd, expandHome(w))));
+  return [...(ctx.writes ? ctx.paths : []), ...bash];
+}
+
 function buildContext(call: ToolCall, env: Env): Context {
   const input = call.tool_input ?? {};
   const cwd = call.cwd || env.projectDir;
@@ -601,6 +622,7 @@ function buildContext(call: ToolCall, env: Env): Context {
   const commands: Command[] = [];
   let opaque = false;
   let hiddenCode: string | null = null;
+  const heredocBodies: string[] = [];
   const command = str('command');
   if (call.tool_name === 'Bash' && command) {
     let dir = cwd;
@@ -608,6 +630,7 @@ function buildContext(call: ToolCall, env: Env): Context {
     const walk = (text: string, depth: number) => {
       const parsed = parseCommand(text);
       opaque ||= parsed.opaque;
+      heredocBodies.push(...parsed.heredocBodies);
       for (const raw of parsed.segments) {
         const norm = normalize(raw);
         const seg = norm.seg;
@@ -661,7 +684,7 @@ function buildContext(call: ToolCall, env: Env): Context {
     };
     walk(command, 0);
   }
-  return { tool: call.tool_name, input, env, paths, writes: FILE_WRITE_TOOLS.has(call.tool_name), commands, opaque, hiddenCode };
+  return { tool: call.tool_name, input, env, paths, writes: FILE_WRITE_TOOLS.has(call.tool_name), commands, opaque, hiddenCode, heredocBodies };
 }
 
 interface Expansion {

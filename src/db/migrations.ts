@@ -34,4 +34,23 @@ export const MIGRATIONS: readonly string[] = [
   );
   CREATE INDEX watches_watched_at ON watches (watched_at);
   `,
+  // 3. Posters (FR-9): imdb_id links to TMDB; poster_path NULL = not looked up, '' = TMDB has none.
+  `
+  ALTER TABLE movies ADD COLUMN imdb_id TEXT CHECK (imdb_id GLOB 'tt[0-9]*' AND imdb_id NOT GLOB 'tt*[^0-9]*');
+  ALTER TABLE movies ADD COLUMN poster_path TEXT CHECK (poster_path = '' OR poster_path GLOB '/*');
+  CREATE UNIQUE INDEX movies_imdb_id ON movies (imdb_id);
+  `,
+  // 4. Catalog filters/sort (FR-5): IMDb rating + votes (NULL = no IMDb data); director_key as title_key (ADR-008).
+  //    text_key() is the JS textKey, registered by migrate() in database.ts.
+  `
+  ALTER TABLE movies ADD COLUMN imdb_rating REAL CHECK (imdb_rating BETWEEN 1 AND 10);
+  ALTER TABLE movies ADD COLUMN imdb_votes INTEGER CHECK (imdb_votes >= 0);
+  ALTER TABLE movies ADD COLUMN director_key TEXT NOT NULL DEFAULT '';
+  UPDATE movies SET director_key = text_key(director);
+  `,
+  // 5. Movie details (FR-10): overview NULL = not looked up, '' = TMDB has none; cast_json = top-billed cast as a JSON array.
+  `
+  ALTER TABLE movies ADD COLUMN overview TEXT;
+  ALTER TABLE movies ADD COLUMN cast_json TEXT CHECK (cast_json IS NULL OR (json_valid(cast_json) AND json_type(cast_json) = 'array'));
+  `,
 ];
