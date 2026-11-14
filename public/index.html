@@ -3,17 +3,22 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Movie Tracker</title>
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#141110" />
+    <title>movie-tracker</title>
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
+    <a class="skip" href="#app">Skip to content</a>
     <header class="top">
-      <a class="brand" href="#/">movie-tracker</a>
-      <nav>
-        <a href="#/">Catalog</a>
-        <a href="#/history">History</a>
-        <a href="#/dashboard">Dashboard</a>
-      </nav>
+      <div class="top-inner">
+        <a class="brand" href="#/"><span class="brand-mark" aria-hidden="true"></span>movie-tracker</a>
+        <nav aria-label="Main">
+          <a href="#/">Films</a>
+          <a href="#/history">Diary</a>
+          <a href="#/dashboard">Your taste</a>
+        </nav>
+      </div>
     </header>
     <main id="app"></main>
     <footer class="attribution">

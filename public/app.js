@@ -1,7 +1,7 @@
 // movie-tracker web UI: hash-routed vanilla JS over the JSON API. All data is rendered as text (el/textContent), never parsed as HTML.
 
 const app = document.getElementById('app');
-const PAGE = 20;
+const PAGE = 24;
 
 /** Calls the API; throws Error(message) on non-2xx (validation details appended), returns null on 204. */
 export async function api(path, { method = 'GET', body } = {}) {
@@ -16,7 +16,7 @@ export async function api(path, { method = 'GET', body } = {}) {
     const details = Array.isArray(data.error?.details)
       ? data.error.details.map((d) => `${d.path.replace(/^\//, '') || 'request'}: ${d.message}`).join('; ')
       : '';
-    throw new Error([data.error?.message ?? `HTTP ${res.status}`, details].filter(Boolean).join(' — '));
+    throw new Error([data.error?.message ?? `HTTP ${res.status}`, details].filter(Boolean).join(': '));
   }
   return data;
 }
@@ -36,26 +36,47 @@ export function el(tag, props = {}, ...children) {
 }
 
 const today = () => new Date().toLocaleDateString('sv'); // YYYY-MM-DD in local time
+/** "2026-11-13" → Date at local midnight (avoids the UTC shift of new Date('2026-11-13')). */
+const day = (iso) => {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d);
+};
+const shortDate = (iso) => day(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+const monthLabel = (iso) => day(iso).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+
 const chips = (genres) =>
   el(
     'span',
     { class: 'chips' },
     genres.map((g) => el('span', { class: 'chip', text: g })),
   );
-/** Decorative poster (alt=''; the title is next to it). On 404/503 it becomes a same-sized neutral placeholder. */
-const poster = (movieId, cls, width) =>
+
+/**
+ * Decorative poster (alt=''; the title is always next to it). On 404/503 it becomes a same-sized
+ * placeholder carrying the title, so a catalog without TMDB still reads as a wall of films.
+ */
+const poster = (movieId, cls, width, label = '') =>
   el('img', {
     class: `poster ${cls}`,
     src: `/movies/${movieId}/poster`,
     alt: '',
     loading: 'lazy',
+    decoding: 'async',
     width,
     height: Math.round(width * 1.5),
-    // Chrome draws a broken-image icon on any failed <img>, so swap it for an empty box of the same class.
-    onerror: (e) => e.target.replaceWith(el('span', { class: `poster ${cls} missing`, 'aria-hidden': 'true' })),
+    // Chrome draws a broken-image icon on any failed <img>, so swap it for an element of the same class.
+    // Each film gets its own stable tint (hue from its id), so a wall of placeholders still looks like different films.
+    onerror: (e) =>
+      e.target.replaceWith(
+        el('span', { class: `poster ${cls} missing`, style: `--h: ${(Number(movieId) * 47) % 360}`, 'aria-hidden': 'true' }, label ? el('span', { text: label }) : null),
+      ),
   });
-/** "IMDb 7.9 · 612,345 votes", or null for a movie without IMDb data (added by hand). */
-const imdbText = (m) => (m.imdbRating === null ? null : `IMDb ${m.imdbRating.toFixed(1)} · ${m.imdbVotes.toLocaleString()} votes`);
+
+/** "IMDb 7.9", or null for a movie without IMDb data (added by hand). */
+const imdbShort = (m) => (m.imdbRating === null ? null : `IMDb ${m.imdbRating.toFixed(1)}`);
+/** "7.9 IMDb · 612,345 votes", or null. */
+const imdbLong = (m) => (m.imdbRating === null ? null : `IMDb ${m.imdbRating.toFixed(1)} · ${m.imdbVotes.toLocaleString('en-US')} votes`);
+
 /** Genre <select> for filters: "Any genre", then GET /genres (exact stored names). A failed load shows in `error`, its own line, so a list load cannot clear it. */
 function genreSelect(error) {
   const select = el('select', {}, el('option', { value: '', text: 'Any genre' }));
@@ -69,9 +90,18 @@ function showError(node, error) {
   node.textContent = error ? error.message : '';
   node.hidden = !error;
 }
-function field(label, input) {
-  return el('label', { class: 'field' }, el('span', { text: label }), input);
+function field(label, input, cls = '') {
+  return el('label', { class: `field ${cls}`.trim() }, el('span', { text: label }), input);
 }
+const options = (pairs) => pairs.map(([value, text]) => el('option', { value, text }));
+/** Filter bar in a disclosure: open on wide screens, folded on phones so the films come first. */
+const foldable = (form) =>
+  el(
+    'details',
+    { class: 'filters', open: matchMedia('(min-width: 641px)').matches },
+    el('summary', { class: 'button ghost filters-toggle', text: 'Filters & sort' }),
+    form,
+  );
 
 /** Prev/next pager for a { total, limit, offset } page. */
 export function pager(page, go) {
@@ -79,99 +109,85 @@ export function pager(page, go) {
   const from = page.total === 0 ? 0 : page.offset + 1;
   const to = Math.min(page.offset + page.limit, page.total);
   return el(
-    'div',
-    { class: 'pager' },
-    el('button', { type: 'button', disabled: page.offset === 0, onclick: () => go(Math.max(0, page.offset - page.limit)), text: '‹ Prev' }),
-    el('span', { class: 'muted', text: `${from}–${to} of ${page.total.toLocaleString()}` }),
-    el('button', { type: 'button', disabled: to >= page.total, onclick: () => go(page.offset + page.limit), text: 'Next ›' }),
+    'nav',
+    { class: 'pager', 'aria-label': 'Pages' },
+    el('button', { type: 'button', class: 'ghost', disabled: page.offset === 0, onclick: () => go(Math.max(0, page.offset - page.limit)), text: '← Previous' }),
+    el('span', { class: 'muted', text: `${from.toLocaleString('en-US')}–${to.toLocaleString('en-US')} of ${page.total.toLocaleString('en-US')}` }),
+    el('button', { type: 'button', class: 'ghost', disabled: to >= page.total, onclick: () => go(page.offset + page.limit), text: 'Next →' }),
   );
 }
+/** Scrolls back to the top of a list after paging, without jumping past the toolbar. */
+const toTop = (node) => node.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
 
 // ---------- Catalog (#/) ----------
 
 function catalog() {
   const state = { q: '', offset: 0 };
-  const search = el('input', { type: 'search', placeholder: 'Search by title…', autofocus: true, 'aria-label': 'Search by title' });
+  const search = el('input', { type: 'search', class: 'search', placeholder: 'Search 19,000 films by title', autofocus: true, 'aria-label': 'Search by title' });
   const list = el('div', { class: 'list', 'aria-live': 'polite' });
+  const count = el('p', { class: 'count muted', role: 'status' });
   const error = errorLine();
   const genreError = errorLine();
-  const year = { type: 'number', min: 1888, max: new Date().getFullYear() + 1 };
+  const year = { type: 'number', min: 1888, max: new Date().getFullYear() + 1, inputmode: 'numeric', placeholder: 'Any' };
   const inputs = {
     genre: genreSelect(genreError),
     yearFrom: el('input', year),
     yearTo: el('input', year),
-    director: el('input', { maxlength: 200 }),
-    watched: el(
-      'select',
-      {},
-      el('option', { value: '', text: 'All' }),
-      el('option', { value: 'false', text: 'Not watched' }),
-      el('option', { value: 'true', text: 'Watched' }),
-    ),
-    sort: el(
-      'select',
-      {},
-      ['votes', 'rating', 'year', 'title'].map((v) =>
-        el('option', { value: v, text: { votes: 'Popularity (votes)', rating: 'IMDb rating', year: 'Release year', title: 'Title' }[v] }),
-      ),
-    ),
-    order: el(
-      'select',
-      {},
-      el('option', { value: '', text: 'Default' }),
-      el('option', { value: 'desc', text: 'Descending' }),
-      el('option', { value: 'asc', text: 'Ascending' }),
-    ),
+    director: el('input', { maxlength: 200, placeholder: 'Any' }),
+    watched: el('select', {}, options([['', 'All films'], ['false', 'Not watched'], ['true', 'Watched']])),
+    sort: el('select', {}, options([['votes', 'Popularity'], ['rating', 'IMDb rating'], ['year', 'Release year'], ['title', 'Title']])),
+    order: el('select', {}, options([['', 'Default'], ['desc', 'Descending'], ['asc', 'Ascending']])),
   };
 
   async function load() {
     const params = new URLSearchParams({ limit: PAGE, offset: state.offset });
     if (state.q) params.set('q', state.q);
     for (const [key, input] of Object.entries(inputs)) if (input.value.trim()) params.set(key, input.value.trim());
+    list.setAttribute('aria-busy', 'true');
     try {
       const page = await api(`/movies?${params}`);
       showError(error, null);
+      const filtered = ['q', 'genre', 'yearFrom', 'yearTo', 'director', 'watched'].some((k) => params.has(k));
+      count.textContent = page.total === 0 ? '' : `${page.total.toLocaleString('en-US')} ${page.total === 1 ? 'film' : 'films'}`;
       list.replaceChildren(
         page.items.length === 0
-          ? el('p', {
-              class: 'empty',
-              text: ['q', 'genre', 'yearFrom', 'yearTo', 'director', 'watched'].some((k) => params.has(k))
-                ? 'No movies match these filters.'
-                : 'The catalog is empty. Run npm run import:imdb or add a movie.',
-            })
+          ? emptyState(
+              filtered ? 'No films match' : 'The catalog is empty',
+              filtered ? 'Try a broader title, another genre or a wider year range.' : 'Run npm run import:imdb to load the IMDb catalog, or add a film by hand.',
+            )
           : el(
               'ul',
-              { class: 'rows' },
+              { class: 'grid-posters' },
               page.items.map((m) =>
                 el(
                   'li',
                   {},
                   el(
                     'a',
-                    { class: 'row with-poster', href: `#/movies/${m.id}` },
-                    poster(m.id, 'thumb', 46),
+                    { class: 'tile', href: `#/movies/${m.id}` },
                     el(
                       'span',
-                      { class: 'title' },
-                      m.title,
-                      el('span', { class: 'muted', text: ` (${m.year})` }),
-                      m.watched ? el('span', { class: 'seen', text: 'Watched' }) : null,
-                      imdbText(m) ? el('span', { class: 'muted imdb', text: imdbText(m) }) : null,
+                      { class: 'tile-art' },
+                      poster(m.id, 'tile-poster', 200, m.title),
+                      m.watched ? el('span', { class: 'seen', text: '✓ Watched' }) : null,
                     ),
-                    el('span', { class: 'muted', text: m.director }),
-                    chips(m.genres),
+                    el('span', { class: 'tile-title', text: m.title }),
+                    el('span', { class: 'tile-meta' }, el('span', { text: String(m.year) }), imdbShort(m) ? el('span', { text: imdbShort(m) }) : null),
                   ),
                 ),
               ),
             ),
         pager(page, (offset) => {
           state.offset = offset;
-          load();
+          load().then(() => toTop(head));
         }) ?? '',
       );
     } catch (e) {
       list.replaceChildren();
+      count.textContent = '';
       showError(error, e);
+    } finally {
+      list.removeAttribute('aria-busy');
     }
   }
 
@@ -192,7 +208,8 @@ function catalog() {
   const filters = el(
     'form',
     {
-      class: 'card grid filters',
+      class: 'filterbar',
+      'aria-label': 'Filter and sort the catalog',
       onsubmit: (event) => {
         event.preventDefault();
         reload();
@@ -200,28 +217,29 @@ function catalog() {
       onchange: reload,
     },
     field('Genre', inputs.genre),
-    field('Year from', inputs.yearFrom),
-    field('Year to', inputs.yearTo),
+    el('div', { class: 'field-pair' }, field('From', inputs.yearFrom, 'narrow'), field('To', inputs.yearTo, 'narrow')),
     field('Director', inputs.director),
-    field('Watched', inputs.watched),
+    field('Show', inputs.watched),
+    el('span', { class: 'spacer', 'aria-hidden': 'true' }),
     field('Sort by', inputs.sort),
     field('Order', inputs.order),
   );
 
+  const head = el('div', { class: 'page-head' }, el('div', { class: 'search-row' }, search, addMovieForm()), foldable(filters));
   load();
-  return [el('div', { class: 'toolbar' }, search, addMovieForm()), filters, genreError, error, list];
+  return [head, genreError, error, count, list];
 }
 
 function addMovieForm() {
   const title = el('input', { required: true, maxlength: 300 });
-  const year = el('input', { type: 'number', required: true, min: 1888, max: new Date().getFullYear() + 1 });
+  const year = el('input', { type: 'number', required: true, min: 1888, max: new Date().getFullYear() + 1, inputmode: 'numeric' });
   const genres = el('input', { required: true, placeholder: 'Drama, Sci-Fi' });
   const director = el('input', { required: true, maxlength: 200 });
   const error = errorLine();
   const form = el(
     'form',
     {
-      class: 'card stack',
+      class: 'panel stack add-form',
       onsubmit: async (event) => {
         event.preventDefault();
         try {
@@ -243,54 +261,53 @@ function addMovieForm() {
         }
       },
     },
-    el(
-      'div',
-      { class: 'grid' },
-      field('Title', title),
-      field('Year', year),
-      field('Genres (comma-separated)', genres),
-      field('Director', director),
-    ),
+    el('p', { class: 'muted', text: 'For films missing from the IMDb import. Added films have no poster or IMDb rating.' }),
+    el('div', { class: 'form-grid' }, field('Title', title), field('Year', year), field('Genres (comma-separated)', genres), field('Director', director)),
     error,
-    el('div', {}, el('button', { class: 'primary', text: 'Add movie' })),
+    el('div', {}, el('button', { class: 'primary', text: 'Add film' })),
   );
-  return el('details', { class: 'add' }, el('summary', { text: '+ Add movie' }), form);
+  return el('details', { class: 'add' }, el('summary', { class: 'button ghost', text: 'Add a film' }), form);
+}
+
+function emptyState(title, text) {
+  return el('div', { class: 'empty' }, el('p', { class: 'empty-title', text: title }), el('p', { class: 'muted', text }));
 }
 
 // ---------- Movie detail (#/movies/:id) ----------
 
 function movieDetail(id) {
-  const root = el('div', { class: 'stack' }, el('p', { class: 'muted', text: 'Loading…' }));
+  const root = el('div', { class: 'detail' }, el('div', { class: 'skeleton-hero', 'aria-hidden': 'true' }));
   (async () => {
     try {
       const movie = await api(`/movies/${id}`);
       const watch = await api(`/movies/${id}/watch`).catch(() => null);
-      const info = el(
-        'div',
-        { class: 'stack' },
-        el('h1', {}, movie.title, el('span', { class: 'muted', text: ` (${movie.year})` })),
-        el('p', { class: 'muted', text: `Directed by ${movie.director}` }),
-        imdbText(movie) ? el('p', { class: 'muted', text: imdbText(movie) }) : null,
-        chips(movie.genres),
+      document.title = `${movie.title} (${movie.year}) · movie-tracker`;
+      const meta = el('p', { class: 'meta' }, el('span', { text: String(movie.year) }), el('span', { text: movie.director }), imdbLong(movie) ? el('span', { text: imdbLong(movie) }) : null);
+      const info = el('div', { class: 'hero-info' }, el('h1', { class: 'hero-title', text: movie.title }), meta, chips(movie.genres));
+      const hero = el(
+        'section',
+        { class: 'hero' },
+        // The poster again, blurred and enlarged, as the stage lighting behind the page. A failed load just leaves it dark.
+        el('div', { class: 'backdrop', style: `background-image: url("/movies/${movie.id}/poster")`, 'aria-hidden': 'true' }),
+        el('a', { class: 'back', href: '#/', text: '← Catalog' }),
+        el('div', { class: 'hero-body' }, poster(movie.id, 'hero-poster', 240, movie.title), info),
       );
-      const head = el('section', { class: 'card detail-head' }, poster(movie.id, 'large', 160), info);
-      root.replaceChildren(el('a', { class: 'back', href: '#/', text: '‹ Catalog' }), head, watchForm(movie, watch));
+      const body = el('div', { class: 'detail-body' }, watchForm(movie, watch));
+      root.replaceChildren(hero, body);
       // TMDB plot and cast (FR-10) fill in after first paint; any failure or empty result adds nothing (NFR-7).
       api(`/movies/${id}/details`)
         .then((d) => {
           if (d.overview) info.append(el('p', { class: 'overview', text: d.overview }));
           if (d.cast.length) {
-            head.after(
+            body.append(
               el(
                 'section',
-                { class: 'card stack cast' },
-                el('h2', { text: 'Cast' }),
+                { class: 'cast', 'aria-labelledby': 'cast-title' },
+                el('h2', { id: 'cast-title', text: 'Cast' }),
                 el(
                   'ul',
                   {},
-                  d.cast.map((c) =>
-                    el('li', {}, el('span', { text: c.name }), c.character ? el('span', { class: 'muted', text: ` as ${c.character}` }) : null),
-                  ),
+                  d.cast.map((c) => el('li', {}, el('span', { class: 'actor', text: c.name }), c.character ? el('span', { class: 'role', text: c.character }) : null)),
                 ),
               ),
             );
@@ -298,34 +315,38 @@ function movieDetail(id) {
         })
         .catch(() => {});
     } catch (e) {
-      root.replaceChildren(
-        el('a', { class: 'back', href: '#/', text: '‹ Catalog' }),
-        el('p', { class: 'error', role: 'alert', text: e.message }),
-      );
+      root.replaceChildren(el('a', { class: 'back plain', href: '#/', text: '← Catalog' }), el('p', { class: 'error', role: 'alert', text: e.message }));
     }
   })();
   return root;
 }
 
 function watchForm(movie, watch) {
-  const rating = el(
-    'select',
-    { required: true },
-    el('option', { value: '', text: '—' }),
-    Array.from({ length: 10 }, (_, i) => el('option', { value: i + 1, text: String(i + 1), selected: watch?.rating === i + 1 })),
+  const ratingName = `rating-${movie.id}`;
+  const ratings = el(
+    'div',
+    { class: 'rating-scale' },
+    Array.from({ length: 10 }, (_, i) =>
+      el(
+        'label',
+        { class: 'rate' },
+        el('input', { type: 'radio', name: ratingName, value: i + 1, required: i === 0, checked: watch?.rating === i + 1 }),
+        el('span', { text: String(i + 1) }),
+      ),
+    ),
   );
   const date = el('input', { type: 'date', max: today(), value: watch?.watchedAt ?? today() });
-  const note = el('textarea', { rows: 3, maxlength: 2000 });
+  const note = el('textarea', { rows: 3, maxlength: 2000, placeholder: 'What stayed with you?' });
   note.value = watch?.note ?? '';
   const error = errorLine();
-  const status = el('span', { class: 'muted', role: 'status' });
 
   const save = async (event) => {
     event.preventDefault();
+    const rating = form.querySelector(`input[name="${ratingName}"]:checked`)?.value;
     try {
       const saved = await api(`/movies/${movie.id}/watch`, {
         method: watch ? 'PUT' : 'POST',
-        body: { rating: Number(rating.value), watchedAt: date.value || undefined, note: note.value },
+        body: { rating: Number(rating), watchedAt: date.value || undefined, note: note.value },
       });
       form.replaceWith(watchForm(movie, saved));
     } catch (e) {
@@ -341,19 +362,21 @@ function watchForm(movie, watch) {
     }
   };
 
-  status.textContent = watch ? `Watched on ${watch.watchedAt}, rated ${watch.rating}/10` : 'Not watched yet';
+  const status = watch
+    ? el('p', { class: 'status logged', role: 'status' }, el('span', { class: 'score-badge', text: String(watch.rating) }), `Watched ${shortDate(watch.watchedAt)}`)
+    : el('p', { class: 'status muted', role: 'status', text: 'Not watched yet' });
   const form = el(
     'form',
-    { class: 'card stack', onsubmit: save },
-    el('div', { class: 'between' }, el('h2', { text: 'Your watch' }), status),
-    el('div', { class: 'grid' }, field('Rating (1–10)', rating), field('Watched on', date)),
-    field('Note', note),
+    { class: 'log', onsubmit: save, 'aria-labelledby': `log-${movie.id}` },
+    el('div', { class: 'log-head' }, el('h2', { id: `log-${movie.id}`, text: watch ? 'Your watch' : 'Log this film' }), status),
+    el('fieldset', { class: 'rating' }, el('legend', { text: 'Your rating, 1 to 10' }), ratings),
+    el('div', { class: 'log-grid' }, field('Watched on', date), field('Note', note, 'grow')),
     error,
     el(
       'div',
       { class: 'actions' },
-      el('button', { class: 'primary', text: watch ? 'Save changes' : 'Mark as watched' }),
-      watch ? el('button', { type: 'button', class: 'danger', onclick: remove, text: 'Remove watch' }) : null,
+      el('button', { class: 'primary', text: watch ? 'Save changes' : 'Log watch' }),
+      watch ? el('button', { type: 'button', class: 'ghost danger', onclick: remove, text: 'Remove from history' }) : null,
     ),
   );
   return form;
@@ -363,105 +386,111 @@ function watchForm(movie, watch) {
 
 function history() {
   const state = { offset: 0 };
-  const list = el('div', { 'aria-live': 'polite' });
+  const list = el('div', { class: 'list', 'aria-live': 'polite' });
   const error = errorLine();
   const genreError = errorLine();
   const inputs = {
     genre: genreSelect(genreError),
-    ratingMin: el('input', { type: 'number', min: 1, max: 10 }),
-    ratingMax: el('input', { type: 'number', min: 1, max: 10 }),
+    ratingMin: el('input', { type: 'number', min: 1, max: 10, inputmode: 'numeric', placeholder: 'Any' }),
+    ratingMax: el('input', { type: 'number', min: 1, max: 10, inputmode: 'numeric', placeholder: 'Any' }),
     watchedFrom: el('input', { type: 'date', max: today() }),
     watchedTo: el('input', { type: 'date', max: today() }),
-    sort: el(
-      'select',
-      {},
-      ['watchedAt', 'rating', 'year', 'title'].map((v) =>
-        el('option', { value: v, text: { watchedAt: 'Watch date', rating: 'Rating', year: 'Release year', title: 'Title' }[v] }),
-      ),
-    ),
-    order: el(
-      'select',
-      {},
-      el('option', { value: '', text: 'Default' }),
-      el('option', { value: 'desc', text: 'Descending' }),
-      el('option', { value: 'asc', text: 'Ascending' }),
-    ),
+    sort: el('select', {}, options([['watchedAt', 'Watch date'], ['rating', 'Your rating'], ['year', 'Release year'], ['title', 'Title']])),
+    order: el('select', {}, options([['', 'Default'], ['desc', 'Descending'], ['asc', 'Ascending']])),
   };
+
+  const row = (w) =>
+    el(
+      'li',
+      {},
+      el(
+        'a',
+        { class: 'entry', href: `#/movies/${w.movieId}` },
+        poster(w.movieId, 'entry-poster', 48, w.movie.title),
+        el(
+          'span',
+          { class: 'entry-main' },
+          el('span', { class: 'entry-title' }, w.movie.title, el('span', { class: 'year', text: ` ${w.movie.year}` })),
+          w.note ? el('span', { class: 'note', text: w.note }) : null,
+        ),
+        el('span', { class: 'entry-date', text: shortDate(w.watchedAt) }),
+        el('span', { class: 'score-badge', text: String(w.rating), 'aria-label': `Rated ${w.rating} of 10` }),
+      ),
+    );
 
   async function load() {
     const params = new URLSearchParams({ limit: PAGE, offset: state.offset });
     for (const [key, input] of Object.entries(inputs)) if (input.value.trim()) params.set(key, input.value.trim());
+    list.setAttribute('aria-busy', 'true');
     try {
       const page = await api(`/watches?${params}`);
       showError(error, null);
+      const filtered = ['genre', 'ratingMin', 'ratingMax', 'watchedFrom', 'watchedTo'].some((k) => params.has(k));
+      // A diary reads by month when it is in date order; other sorts stay one flat list.
+      const byMonth = inputs.sort.value === 'watchedAt';
+      const groups = [];
+      for (const w of page.items) {
+        const key = byMonth ? monthLabel(w.watchedAt) : '';
+        if (groups.at(-1)?.key !== key) groups.push({ key, items: [] });
+        groups.at(-1).items.push(w);
+      }
       list.replaceChildren(
         page.items.length === 0
-          ? el('p', {
-              class: 'empty',
-              text: !['genre', 'ratingMin', 'ratingMax', 'watchedFrom', 'watchedTo'].some((k) => params.has(k))
-                ? 'Nothing watched yet. Find a movie in the catalog and rate it.'
-                : 'No watches match these filters.',
-            })
+          ? emptyState(
+              filtered ? 'No watches match' : 'Your diary is empty',
+              filtered ? 'Widen the rating or date range, or pick another genre.' : 'Open any film in the catalog and log it. It will show up here.',
+            )
           : el(
-              'ul',
-              { class: 'rows' },
-              page.items.map((w) =>
+              'div',
+              { class: 'diary' },
+              groups.map((g) =>
                 el(
-                  'li',
-                  {},
-                  el(
-                    'a',
-                    { class: 'row history-row', href: `#/movies/${w.movieId}` },
-                    poster(w.movieId, 'thumb', 40),
-                    el('span', { class: 'rating', text: String(w.rating), 'aria-label': `Rated ${w.rating} of 10` }),
-                    el(
-                      'span',
-                      {},
-                      el('span', { class: 'title', text: w.movie.title }),
-                      el('span', { class: 'muted', text: ` (${w.movie.year})` }),
-                      w.note ? el('span', { class: 'note', text: w.note }) : null,
-                    ),
-                    el('span', { class: 'muted', text: w.watchedAt }),
-                  ),
+                  'section',
+                  { class: 'month' },
+                  g.key ? el('h2', { class: 'month-title', text: g.key }) : null,
+                  el('ul', { class: 'entries' }, g.items.map(row)),
                 ),
               ),
             ),
         pager(page, (offset) => {
           state.offset = offset;
-          load();
+          load().then(() => toTop(head));
         }) ?? '',
       );
     } catch (e) {
       list.replaceChildren();
       showError(error, e);
+    } finally {
+      list.removeAttribute('aria-busy');
     }
   }
 
+  const reload = () => {
+    state.offset = 0;
+    load();
+  };
   const filters = el(
     'form',
     {
-      class: 'card grid filters',
+      class: 'filterbar',
+      'aria-label': 'Filter and sort your history',
       onsubmit: (event) => {
         event.preventDefault();
-        state.offset = 0;
-        load();
+        reload();
       },
-      onchange: () => {
-        state.offset = 0;
-        load();
-      },
+      onchange: reload,
     },
     field('Genre', inputs.genre),
-    field('Rating from', inputs.ratingMin),
-    field('Rating to', inputs.ratingMax),
-    field('Watched from', inputs.watchedFrom),
-    field('Watched to', inputs.watchedTo),
+    el('div', { class: 'field-pair' }, field('Rating from', inputs.ratingMin, 'narrow'), field('to', inputs.ratingMax, 'narrow')),
+    el('div', { class: 'field-pair' }, field('Watched from', inputs.watchedFrom), field('to', inputs.watchedTo)),
+    el('span', { class: 'spacer', 'aria-hidden': 'true' }),
     field('Sort by', inputs.sort),
     field('Order', inputs.order),
   );
 
+  const head = el('div', { class: 'page-head' }, el('h1', { class: 'page-title', text: 'Diary' }), foldable(filters));
   load();
-  return [el('h1', { class: 'page-title', text: 'Watch history' }), filters, genreError, error, list];
+  return [head, genreError, error, list];
 }
 
 // ---------- Dashboard (#/dashboard) ----------
@@ -477,97 +506,73 @@ function bars(items, label, value, caption) {
         'li',
         {},
         el('span', { class: 'bar-label', text: label(item) }),
-        el('span', { class: 'bar-track' }, el('span', { class: 'bar', style: `width: ${(value(item) / max) * 100}%` })),
-        el('span', { class: 'muted bar-value', text: caption(item) }),
+        el('span', { class: 'bar-track', 'aria-hidden': 'true' }, el('span', { class: 'bar', style: `width: ${(value(item) / max) * 100}%` })),
+        el('span', { class: 'bar-value', text: caption(item) }),
       ),
     ),
   );
 }
 
 function section(title, ...body) {
-  return el('section', { class: 'card' }, el('h2', { text: title }), ...body);
+  return el('section', { class: 'stat' }, el('h2', { text: title }), ...body);
 }
 
 function dashboard() {
-  const root = el(
-    'div',
-    { class: 'stack' },
-    el('h1', { class: 'page-title', text: 'Dashboard' }),
-    el('p', { class: 'muted', text: 'Loading…' }),
-  );
+  const root = el('div', { class: 'dashboard' }, el('h1', { class: 'page-title', text: 'Your taste' }), el('div', { class: 'skeleton-shelf', 'aria-hidden': 'true' }));
   (async () => {
     try {
-      const [stats, profile, recs] = await Promise.all([api('/stats'), api('/profile'), api('/recommendations?limit=10')]);
-      const empty = el('p', { class: 'empty', text: 'Rate a movie to see this.' });
+      const [stats, profile, recs] = await Promise.all([api('/stats'), api('/profile'), api('/recommendations?limit=12')]);
+      const empty = () => el('p', { class: 'muted small', text: 'Log a film to see this.' });
       const preference = (items) =>
         items.length === 0
-          ? empty.cloneNode(true)
+          ? empty()
           : bars(
               items.slice(0, 8),
               (i) => i.name,
               (i) => i.count,
               (i) => `${i.count} · avg ${i.averageRating}`,
             );
+      const summary =
+        stats.watchedCount === 0
+          ? 'Nothing logged yet. Rate a few films and this page fills in with your taste and what to watch next.'
+          : `${stats.watchedCount} ${stats.watchedCount === 1 ? 'film' : 'films'} logged, rated ${stats.averageRating} on average.`;
 
       root.replaceChildren(
-        el('h1', { class: 'page-title', text: 'Dashboard' }),
+        el('div', { class: 'page-head' }, el('h1', { class: 'page-title', text: 'Your taste' }), el('p', { class: 'lede', text: summary })),
         el(
-          'div',
-          { class: 'totals' },
-          el(
-            'div',
-            { class: 'card total' },
-            el('span', { class: 'big', text: String(stats.watchedCount) }),
-            el('span', { class: 'muted', text: 'movies watched' }),
-          ),
-          el(
-            'div',
-            { class: 'card total' },
-            el('span', { class: 'big', text: stats.averageRating === null ? '—' : String(stats.averageRating) }),
-            el('span', { class: 'muted', text: 'average rating' }),
-          ),
-        ),
-        section(
-          'Recommended for you',
+          'section',
+          { class: 'shelf-section', 'aria-labelledby': 'recs-title' },
+          el('h2', { id: 'recs-title', text: 'Watch next' }),
           recs.items.length === 0
-            ? empty.cloneNode(true)
+            ? el('p', { class: 'muted small', text: 'Recommendations appear once you have rated a film.' })
             : el(
                 'ol',
-                { class: 'recs' },
+                { class: 'shelf' },
                 recs.items.map((r) =>
                   el(
                     'li',
                     {},
-                    poster(r.movie.id, 'thumb', 40),
                     el(
-                      'div',
-                      { class: 'between' },
-                      el(
-                        'a',
-                        { class: 'title', href: `#/movies/${r.movie.id}` },
-                        r.movie.title,
-                        el('span', { class: 'muted', text: ` (${r.movie.year})` }),
-                      ),
-                      el('span', { class: 'score', text: `score ${r.score}` }),
+                      'a',
+                      { class: 'shelf-item', href: `#/movies/${r.movie.id}`, title: r.explanation },
+                      el('span', { class: 'tile-art' }, poster(r.movie.id, 'tile-poster', 180, r.movie.title)),
+                      el('span', { class: 'tile-title', text: r.movie.title }),
+                      el('span', { class: 'tile-meta' }, el('span', { text: String(r.movie.year) }), el('span', { class: 'match', text: `score ${r.score}` })),
+                      el('span', { class: 'why', text: r.explanation }),
                     ),
-                    el('p', { class: 'muted', text: r.explanation }),
                   ),
                 ),
               ),
         ),
         el(
           'div',
-          { class: 'two' },
+          { class: 'stats' },
           section('Favourite genres', preference(profile.genres)),
           section('Favourite directors', preference(profile.directors)),
-        ),
-        el(
-          'div',
-          { class: 'two' },
           section(
             'Watched by genre',
             stats.byGenre.length === 0
-              ? empty.cloneNode(true)
+              ? empty()
               : bars(
                   stats.byGenre,
                   (g) => g.name,
@@ -578,7 +583,7 @@ function dashboard() {
           section(
             'Watched by release year',
             stats.byYear.length === 0
-              ? empty.cloneNode(true)
+              ? empty()
               : bars(
                   stats.byYear,
                   (y) => String(y.year),
@@ -598,26 +603,27 @@ function dashboard() {
 // ---------- Router ----------
 
 const routes = [
-  [/^#\/history$/, () => history(), '#/history'],
-  [/^#\/dashboard$/, () => dashboard(), '#/dashboard'],
-  [/^#\/movies\/(\d+)$/, (m) => movieDetail(m[1]), '#/'],
-  [/^#?\/?$/, () => catalog(), '#/'],
+  [/^#\/history$/, () => history(), '#/history', 'Diary'],
+  [/^#\/dashboard$/, () => dashboard(), '#/dashboard', 'Your taste'],
+  [/^#\/movies\/(\d+)$/, (m) => movieDetail(m[1]), '#/', null],
+  [/^#?\/?$/, () => catalog(), '#/', 'Films'],
 ];
 
 export function route() {
   const hash = location.hash || '#/';
-  for (const [pattern, render, nav] of routes) {
+  for (const [pattern, render, nav, title] of routes) {
     const match = hash.match(pattern);
     if (!match) continue;
     for (const a of document.querySelectorAll('.top nav a')) {
       if (a.getAttribute('href') === nav) a.setAttribute('aria-current', 'page');
       else a.removeAttribute('aria-current');
     }
+    if (title) document.title = `${title} · movie-tracker`;
     app.replaceChildren(...[render(match)].flat());
     window.scrollTo(0, 0);
     return;
   }
-  app.replaceChildren(el('p', { class: 'empty', text: 'Page not found.' }), el('a', { href: '#/', text: 'Back to the catalog' }));
+  app.replaceChildren(emptyState('Page not found', 'That address does not match any screen.'), el('a', { class: 'button ghost', href: '#/', text: 'Back to the films' }));
 }
 
 window.addEventListener('hashchange', route);
